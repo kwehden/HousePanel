@@ -34,7 +34,7 @@ async def route_event(
         return
 
     if event_req.event_type == "weather-update":
-        from shared.models import WeatherConditions
+        from shared.models import WeatherConditions, ForecastDay
         w = WeatherConditions(
             provider=event_req.payload.get("provider", "unknown"),
             timestamp=ts,
@@ -43,6 +43,17 @@ async def route_event(
             humidity_pct=event_req.payload.get("humidity_pct"),
             wind_speed_ms=event_req.payload.get("wind_speed_ms"),
             icon_code=event_req.payload.get("icon_code"),
+            today_high_c=event_req.payload.get("today_high_c"),
+            today_low_c=event_req.payload.get("today_low_c"),
+            forecast=[
+                ForecastDay(
+                    day_label=d.get("day_label", ""),
+                    high_c=d.get("high_c", 0.0),
+                    low_c=d.get("low_c", 0.0),
+                    conditions=d.get("conditions", ""),
+                )
+                for d in event_req.payload.get("forecast", [])
+            ],
         )
         state.update_weather(w)
         await dispatch_command_to_transport(

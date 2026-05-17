@@ -58,8 +58,7 @@ void loop() {
             case CommandType::WEATHER_UPDATE:
                 Serial.print("WEATHER: ");
                 Serial.println(g_last_frame.weather.temperature_c);
-                render_weather_section(g_last_frame.weather.temperature_c,
-                                       g_last_frame.weather.conditions);
+                render_weather_section(g_last_frame.weather);
                 _last_data_rx_ms = millis();
                 break;
             case CommandType::CALENDAR_UPDATE: {

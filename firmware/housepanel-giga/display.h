@@ -1,11 +1,12 @@
 #pragma once
 #include <Arduino.h>
+#include "command_parser.h"
 
 enum class DisplayState { DAILY_VIEW, DOORBELL_INTERRUPT };
 
 void display_init();
 void render_daily_view();
-void render_weather_section(float temp_c, const char* conditions);
+void render_weather_section(const WeatherData& weather);
 void render_calendar_section(const char* events_text);
 void ticker_append(const char* text);
 void ticker_advance();

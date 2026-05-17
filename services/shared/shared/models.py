@@ -42,6 +42,14 @@ class UnifiedEvent:
 
 
 @dataclass
+class ForecastDay:
+    day_label: str    # "Mon", "Tue", etc.
+    high_c: float
+    low_c: float
+    conditions: str
+
+
+@dataclass
 class WeatherConditions:
     provider: str
     timestamp: datetime
@@ -50,6 +58,9 @@ class WeatherConditions:
     humidity_pct: float | None = None
     wind_speed_ms: float | None = None
     icon_code: str | None = None
+    today_high_c: float | None = None
+    today_low_c: float | None = None
+    forecast: list[ForecastDay] = field(default_factory=list)
 
 
 @dataclass

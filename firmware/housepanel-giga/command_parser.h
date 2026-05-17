@@ -13,7 +13,24 @@ enum class CommandType {
 
 struct DoorbellData   { int timeout_seconds; };
 struct TickerData     { char text[256]; int ttl_seconds; };
-struct WeatherData    { float temperature_c; char conditions[64]; float humidity_pct; float wind_speed_ms; };
+
+struct ForecastDay {
+    char day_label[8];    // "Mon", "Tue", etc.
+    float high_c;
+    float low_c;
+    char conditions[32];
+};
+
+struct WeatherData {
+    float temperature_c;
+    char conditions[64];
+    float humidity_pct;
+    float wind_speed_ms;
+    float today_high_c;
+    float today_low_c;
+    ForecastDay forecast[4];
+};
+
 struct CalendarData   { char events_json[2048]; };
 
 struct CommandFrame {

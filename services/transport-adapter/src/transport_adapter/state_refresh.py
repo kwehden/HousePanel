@@ -36,6 +36,9 @@ async def _refresh_state(triggered_by: str) -> None:
             "humidity_pct": weather.get("humidity_pct"),
             "wind_speed_ms": weather.get("wind_speed_ms"),
             "icon_code": weather.get("icon_code"),
+            "today_high_c": weather.get("today_high_c"),
+            "today_low_c": weather.get("today_low_c"),
+            "forecast": weather.get("forecast", []),
         }
         await state.normal_queue.put(cmd)
 

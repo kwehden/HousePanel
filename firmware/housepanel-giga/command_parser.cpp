@@ -38,8 +38,28 @@ bool parse_command_frame(const String& raw_json, CommandFrame& out) {
             out.weather.temperature_c  = doc["temperature_c"]  | 0.0f;
             out.weather.humidity_pct   = doc["humidity_pct"]   | 0.0f;
             out.weather.wind_speed_ms  = doc["wind_speed_ms"]  | 0.0f;
+            out.weather.today_high_c   = doc["today_high_c"]   | out.weather.temperature_c;
+            out.weather.today_low_c    = doc["today_low_c"]    | out.weather.temperature_c;
             strncpy(out.weather.conditions, doc["conditions"] | "", sizeof(out.weather.conditions) - 1);
             out.weather.conditions[sizeof(out.weather.conditions) - 1] = '\0';
+            {
+                JsonArray fc = doc["forecast"].as<JsonArray>();
+                int n = 0;
+                for (JsonObject day : fc) {
+                    if (n >= 4) break;
+                    strncpy(out.weather.forecast[n].day_label, day["day_label"] | "", sizeof(ForecastDay::day_label) - 1);
+                    out.weather.forecast[n].day_label[sizeof(ForecastDay::day_label) - 1] = '\0';
+                    out.weather.forecast[n].high_c = day["high_c"] | 0.0f;
+                    out.weather.forecast[n].low_c  = day["low_c"]  | 0.0f;
+                    strncpy(out.weather.forecast[n].conditions, day["conditions"] | "", sizeof(ForecastDay::conditions) - 1);
+                    out.weather.forecast[n].conditions[sizeof(ForecastDay::conditions) - 1] = '\0';
+                    n++;
+                }
+                // Zero-initialize remaining slots
+                for (; n < 4; n++) {
+                    out.weather.forecast[n] = ForecastDay{};
+                }
+            }
             break;
         case CommandType::CALENDAR_UPDATE: {
             String eventsStr;

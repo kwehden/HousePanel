@@ -26,6 +26,12 @@ class AggregatorState:
                 "humidity_pct": w.humidity_pct,
                 "wind_speed_ms": w.wind_speed_ms,
                 "icon_code": w.icon_code,
+                "today_high_c": w.today_high_c,
+                "today_low_c": w.today_low_c,
+                "forecast": [
+                    {"day_label": d.day_label, "high_c": d.high_c, "low_c": d.low_c, "conditions": d.conditions}
+                    for d in w.forecast
+                ],
             }
         calendar = None
         if self.last_calendar:
