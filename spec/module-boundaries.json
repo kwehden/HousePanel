@@ -1,0 +1,83 @@
+{
+  "version": "1.0.0",
+  "boundaries": [
+    {
+      "module": "services/webhook-receiver",
+      "description": "Accepts inbound events from external callers (UniFi Protect, ArduinoTempHumUbuntu). The only service with an external-facing HTTP interface. Must not import or call any other HousePanel service except the aggregator.",
+      "allowed_imports_from": [
+        "services/aggregator"
+      ],
+      "forbidden_imports_from": [
+        "services/transport-adapter",
+        "services/calendar-poller",
+        "services/weather-poller",
+        "services/ring-integration"
+      ]
+    },
+    {
+      "module": "services/aggregator",
+      "description": "Central normalization and routing hub. Receives events from all producers and dispatches commands to the transport adapter. Must not reach out to external APIs. Must not know about Ring-specific, UniFi-specific, or ATH-specific implementation details — these are normalized before reaching the aggregator boundary.",
+      "allowed_imports_from": [
+        "services/transport-adapter"
+      ],
+      "forbidden_imports_from": [
+        "services/webhook-receiver",
+        "services/calendar-poller",
+        "services/weather-poller",
+        "services/ring-integration"
+      ]
+    },
+    {
+      "module": "services/calendar-poller",
+      "description": "Outbound-only poller. Calls the Google Calendar API and pushes to the aggregator. Must not call any other HousePanel service.",
+      "allowed_imports_from": [
+        "services/aggregator"
+      ],
+      "forbidden_imports_from": [
+        "services/webhook-receiver",
+        "services/transport-adapter",
+        "services/weather-poller",
+        "services/ring-integration"
+      ]
+    },
+    {
+      "module": "services/weather-poller",
+      "description": "Outbound-only poller with a swappable weather adapter. Calls the active weather API and pushes to the aggregator. The WeatherAdapter protocol is the sole interface boundary between the adapter implementations and the polling loop; switching adapters must not affect any other module.",
+      "allowed_imports_from": [
+        "services/aggregator"
+      ],
+      "forbidden_imports_from": [
+        "services/webhook-receiver",
+        "services/transport-adapter",
+        "services/calendar-poller",
+        "services/ring-integration"
+      ]
+    },
+    {
+      "module": "services/ring-integration",
+      "description": "Outbound-only Ring event subscriber. Subscribes to Ring cloud events and pushes normalized unified events to the aggregator. Must not contain any display logic, transport logic, or ticker queue logic. The aggregator must contain no Ring-specific code paths.",
+      "allowed_imports_from": [
+        "services/aggregator"
+      ],
+      "forbidden_imports_from": [
+        "services/webhook-receiver",
+        "services/transport-adapter",
+        "services/calendar-poller",
+        "services/weather-poller"
+      ]
+    },
+    {
+      "module": "services/transport-adapter",
+      "description": "Manages the single persistent WebSocket connection to the Arduino Giga. Receives commands from the aggregator only. Must not call the aggregator except for state refresh on Giga reconnect (GET /internal/state). Must not implement any event routing or queue policy logic — that belongs in the aggregator.",
+      "allowed_imports_from": [
+        "services/aggregator"
+      ],
+      "forbidden_imports_from": [
+        "services/webhook-receiver",
+        "services/calendar-poller",
+        "services/weather-poller",
+        "services/ring-integration"
+      ]
+    }
+  ]
+}

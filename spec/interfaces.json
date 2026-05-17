@@ -1,0 +1,213 @@
+{
+  "version": "1.0.0",
+  "modules": {
+    "services/webhook-receiver": {
+      "description": "FastAPI service that accepts inbound HTTP POST payloads from UniFi Protect and ArduinoTempHumUbuntu, validates HMAC-SHA256 signatures, validates payload schema, and forwards normalized events to the aggregator.",
+      "public_exports": [
+        {
+          "name": "POST /v1/webhooks/camera",
+          "kind": "function",
+          "signature": "POST /v1/webhooks/camera (body: CameraWebhookPayloadV1, header: X-HousePanel-Signature) -> 202 | 400 | 401 | 422"
+        },
+        {
+          "name": "POST /v1/webhooks/system-alert",
+          "kind": "function",
+          "signature": "POST /v1/webhooks/system-alert (body: SystemAlertWebhookPayloadV1, header: X-HousePanel-Signature) -> 202 | 400 | 401 | 422"
+        },
+        {
+          "name": "GET /healthz",
+          "kind": "function",
+          "signature": "GET /healthz () -> 200 {status: 'ok'}"
+        },
+        {
+          "name": "CameraWebhookPayloadV1",
+          "kind": "type",
+          "signature": "{ schema_version: '1', source: 'unifi-protect', timestamp: ISO8601, camera_name: str, narrative: str }"
+        },
+        {
+          "name": "SystemAlertWebhookPayloadV1",
+          "kind": "type",
+          "signature": "{ schema_version: '1', source: 'arduino-temp-hum-ubuntu', host_id: str, timestamp: ISO8601, alert_type: 'temperature'|'humidity'|'system'|'network', severity: 'info'|'warning'|'critical', temperature_c: float|null, humidity_pct: float|null, message: str }"
+        }
+      ],
+      "internal_only": [
+        "validate_hmac_signature",
+        "forward_to_aggregator",
+        "reject_malformed_payload"
+      ]
+    },
+    "services/aggregator": {
+      "description": "FastAPI service that normalizes all inbound events into UnifiedEvent, maintains the FIFO ticker queue with dedup and TTL, routes doorbell interrupts with highest priority, and dispatches commands to the transport adapter.",
+      "public_exports": [
+        {
+          "name": "POST /internal/events",
+          "kind": "function",
+          "signature": "POST /internal/events (body: InternalEventRequest) -> 202 | 400"
+        },
+        {
+          "name": "GET /internal/state",
+          "kind": "function",
+          "signature": "GET /internal/state () -> 200 { weather: WeatherConditions|null, calendar: CalendarState|null, ticker_queue: UnifiedEvent[] }"
+        },
+        {
+          "name": "GET /internal/health",
+          "kind": "function",
+          "signature": "GET /internal/health () -> 200 { status: 'ok', queue_depth: int, last_event_by_source: object }"
+        },
+        {
+          "name": "GET /healthz",
+          "kind": "function",
+          "signature": "GET /healthz () -> 200 {status: 'ok'}"
+        },
+        {
+          "name": "UnifiedEvent",
+          "kind": "type",
+          "signature": "{ event_id: UUID4, source: str, event_type: 'ticker'|'doorbell-interrupt'|'weather-update'|'calendar-update', timestamp: datetime, priority: int(0-99), ttl_seconds: int, payload: dict, dedup_hash: str|null }"
+        },
+        {
+          "name": "InternalEventRequest",
+          "kind": "type",
+          "signature": "{ source: str, event_type: str, timestamp: ISO8601, priority: int, payload: dict }"
+        },
+        {
+          "name": "WeatherConditions",
+          "kind": "type",
+          "signature": "{ provider: str, timestamp: datetime, temperature_c: float, conditions: str, humidity_pct: float|null, wind_speed_ms: float|null, icon_code: str|null }"
+        },
+        {
+          "name": "CalendarState",
+          "kind": "type",
+          "signature": "{ poll_timestamp: datetime, events: CalendarEvent[] }"
+        },
+        {
+          "name": "CalendarEvent",
+          "kind": "type",
+          "signature": "{ event_id: str, summary: str, start: ISO8601, end: ISO8601, all_day: bool }"
+        }
+      ],
+      "internal_only": [
+        "ticker_queue",
+        "dedup_cache",
+        "last_weather_cache",
+        "last_calendar_cache",
+        "ticker_drain_loop",
+        "route_doorbell_interrupt",
+        "enqueue_ticker_event",
+        "dispatch_command_to_transport"
+      ]
+    },
+    "services/calendar-poller": {
+      "description": "Scheduled Python service (APScheduler) that polls the Google Calendar API and pushes calendar-update events to the aggregator. No inbound HTTP interface; outbound only.",
+      "public_exports": [
+        {
+          "name": "GET /healthz",
+          "kind": "function",
+          "signature": "GET /healthz () -> 200 {status: 'ok', last_poll_timestamp: ISO8601|null, last_poll_event_count: int|null}"
+        }
+      ],
+      "internal_only": [
+        "poll_google_calendar",
+        "push_calendar_update",
+        "GoogleCalendarClient"
+      ]
+    },
+    "services/weather-poller": {
+      "description": "Scheduled Python service (APScheduler) that polls weather data via a swappable adapter (Google Weather primary, OpenWeatherMap fallback) and pushes weather-update events to the aggregator. No inbound HTTP interface; outbound only.",
+      "public_exports": [
+        {
+          "name": "GET /healthz",
+          "kind": "function",
+          "signature": "GET /healthz () -> 200 {status: 'ok', active_provider: str, last_poll_timestamp: ISO8601|null}"
+        },
+        {
+          "name": "WeatherAdapter",
+          "kind": "type",
+          "signature": "Protocol { provider_name: str; fetch_current() -> WeatherConditions }"
+        },
+        {
+          "name": "WeatherConditions",
+          "kind": "type",
+          "signature": "{ provider: str, timestamp: datetime, temperature_c: float, conditions: str, humidity_pct: float|null, wind_speed_ms: float|null, icon_code: str|null }"
+        }
+      ],
+      "internal_only": [
+        "GoogleWeatherAdapter",
+        "OpenWeatherMapAdapter",
+        "poll_weather",
+        "push_weather_update",
+        "resolve_active_adapter"
+      ]
+    },
+    "services/ring-integration": {
+      "description": "Node.js service using ring-client-api that subscribes to Ring doorbell events via Ring cloud WebSocket and forwards normalized doorbell-interrupt events to the aggregator. No inbound HTTP interface; outbound only.",
+      "public_exports": [
+        {
+          "name": "GET /healthz",
+          "kind": "function",
+          "signature": "GET /healthz () -> 200 {status: 'ok', ring_connected: bool, last_event_timestamp: ISO8601|null}"
+        }
+      ],
+      "internal_only": [
+        "initRingClient",
+        "subscribeToDoorbellEvents",
+        "normalizeRingEvent",
+        "forwardToAggregator",
+        "handleReconnect"
+      ]
+    },
+    "services/transport-adapter": {
+      "description": "FastAPI + websockets service that maintains a persistent WebSocket connection from the Arduino Giga, receives commands from the aggregator via HTTP, and pushes JSON command frames to the Giga with priority ordering (interrupt queue before normal queue). Handles OTA pause protocol.",
+      "public_exports": [
+        {
+          "name": "WS /ws/panel",
+          "kind": "function",
+          "signature": "WebSocket /ws/panel — Giga connects as client; server pushes CommandFrame JSON"
+        },
+        {
+          "name": "POST /internal/commands",
+          "kind": "function",
+          "signature": "POST /internal/commands (body: CommandRequest) -> 202 | 503"
+        },
+        {
+          "name": "GET /internal/health",
+          "kind": "function",
+          "signature": "GET /internal/health () -> 200 { status: 'ok', giga_connected: bool, interrupt_queue_depth: int, normal_queue_depth: int }"
+        },
+        {
+          "name": "GET /healthz",
+          "kind": "function",
+          "signature": "GET /healthz () -> 200 {status: 'ok'}"
+        },
+        {
+          "name": "CommandRequest",
+          "kind": "type",
+          "signature": "{ cmd: 'DOORBELL'|'TICKER-APPEND'|'WEATHER-UPDATE'|'CALENDAR-UPDATE', priority: int, payload: dict }"
+        },
+        {
+          "name": "CommandFrame",
+          "kind": "type",
+          "signature": "{ cmd: str, message_id: UUID4, payload fields vary by cmd type }"
+        },
+        {
+          "name": "GigaHelloFrame",
+          "kind": "type",
+          "signature": "{ cmd: 'HELLO', firmware_version: str, post_ota: bool }"
+        },
+        {
+          "name": "GigaOtaFrame",
+          "kind": "type",
+          "signature": "{ cmd: 'OTA-START' | 'OTA-END' }"
+        }
+      ],
+      "internal_only": [
+        "interrupt_queue",
+        "normal_queue",
+        "giga_websocket_handler",
+        "ws_write_loop",
+        "ota_paused_flag",
+        "request_state_refresh",
+        "handle_hello_frame"
+      ]
+    }
+  }
+}

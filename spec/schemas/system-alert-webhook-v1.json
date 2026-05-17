@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kwehden/HousePanel/spec/schemas/system-alert-webhook-v1.json",
+  "title": "HousePanel System Alert Webhook Event v1",
+  "description": "Payload schema for POST /v1/webhooks/system-alert. HousePanel owns this contract. The ArduinoTempHumUbuntu repo implements against it. Breaking changes are introduced as /v2/ path variants only; /v1/ will remain supported until explicit deprecation notice.",
+  "type": "object",
+  "required": ["schema_version", "source", "host_id", "timestamp", "alert_type", "severity", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Schema version. Always '1' for this endpoint."
+    },
+    "source": {
+      "type": "string",
+      "const": "arduino-temp-hum-ubuntu",
+      "description": "Always 'arduino-temp-hum-ubuntu' for system alert events."
+    },
+    "host_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier for the host generating the alert (e.g. hostname)."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO8601 UTC timestamp of the alert event."
+    },
+    "alert_type": {
+      "type": "string",
+      "enum": ["temperature", "humidity", "system", "network"],
+      "description": "Category of the alert."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "warning", "critical"],
+      "description": "Severity level of the alert."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Human-readable alert message. Maximum 200 characters."
+    },
+    "temperature_c": {
+      "type": ["number", "null"],
+      "description": "Temperature reading in Celsius. Present when alert_type is 'temperature'."
+    },
+    "humidity_pct": {
+      "type": ["number", "null"],
+      "description": "Relative humidity percentage (0-100). Present when alert_type is 'humidity'."
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1",
+      "source": "arduino-temp-hum-ubuntu",
+      "host_id": "laminarflow",
+      "timestamp": "2026-05-17T14:32:01Z",
+      "alert_type": "temperature",
+      "severity": "warning",
+      "message": "Temperature above threshold: 32.5C",
+      "temperature_c": 32.5,
+      "humidity_pct": null
+    },
+    {
+      "schema_version": "1",
+      "source": "arduino-temp-hum-ubuntu",
+      "host_id": "laminarflow",
+      "timestamp": "2026-05-17T14:32:01Z",
+      "alert_type": "network",
+      "severity": "critical",
+      "message": "Network interface eth0 unreachable",
+      "temperature_c": null,
+      "humidity_pct": null
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: housepanel-config
+  namespace: housepanel
+  labels:
+    app.kubernetes.io/part-of: housepanel
+data:
+  # Comma-separated Google Calendar IDs. Primary calendar is usually your Gmail address.
+  # Additional IDs found in Google Calendar → Settings → [calendar] → Calendar ID.
+  GOOGLE_CALENDAR_ID: "you@example.com"

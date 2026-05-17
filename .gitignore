@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Node
+node_modules/
+
+# Environment / secrets
+*.env
+.env.*
+.secrets/
+*credentials*.json
+*service-account*.json
+*keyfile*.json
+
+# Firmware secrets (WiFi creds, local network config)
+firmware/housepanel-giga/secrets.h
+
+# System2 / CI artefacts
+.task-lease.regex
+.task-budget.json
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
