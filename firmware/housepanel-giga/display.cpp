@@ -6,6 +6,8 @@
 #include <string.h>
 #include <stdio.h>
 
+LV_FONT_DECLARE(montserrat_96);
+
 Arduino_H7_Video Display(800, 480, GigaDisplayShield);
 static Arduino_GigaDisplayTouch _touch;
 
@@ -321,9 +323,9 @@ void display_init() {
     lv_obj_add_event_cb(wx_tap, unit_toggle_cb, LV_EVENT_CLICKED, nullptr);
 
     // --- Middle row: y=180, h=220 — clock (2/3) | calendar (1/3) ---
-    // Clock panel: 534px wide
+    // Clock panel: 400px wide (50%)
     lv_obj_t* clock_box = lv_obj_create(_scr_daily);
-    lv_obj_set_size(clock_box, 534, 220);
+    lv_obj_set_size(clock_box, 400, 220);
     lv_obj_set_pos(clock_box, 0, 180);
     lv_obj_set_style_bg_color(clock_box, lv_color_hex(0x000000), LV_PART_MAIN);
     lv_obj_set_style_border_color(clock_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
@@ -334,18 +336,18 @@ void display_init() {
     lv_obj_set_scrollbar_mode(clock_box, LV_SCROLLBAR_MODE_OFF);
 
     _lbl_clock = lv_label_create(clock_box);
-    lv_obj_set_size(_lbl_clock, 530, 220);
+    lv_obj_set_size(_lbl_clock, 396, 220);
     lv_obj_set_pos(_lbl_clock, 2, 0);
     lv_obj_set_style_text_align(_lbl_clock, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(_lbl_clock, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(_lbl_clock, &lv_font_montserrat_48, LV_PART_MAIN);
-    lv_obj_set_style_pad_top(_lbl_clock, 82, LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_clock, &montserrat_96, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(_lbl_clock, 62, LV_PART_MAIN);
     lv_label_set_text(_lbl_clock, "--:--");
 
-    // Calendar panel: 266px wide, right of clock
+    // Calendar panel: 400px wide (50%)
     lv_obj_t* cal_box = lv_obj_create(_scr_daily);
-    lv_obj_set_size(cal_box, 266, 220);
-    lv_obj_set_pos(cal_box, 534, 180);
+    lv_obj_set_size(cal_box, 400, 220);
+    lv_obj_set_pos(cal_box, 400, 180);
     lv_obj_set_style_bg_color(cal_box, lv_color_hex(0x000000), LV_PART_MAIN);
     lv_obj_set_style_border_color(cal_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
     lv_obj_set_style_border_width(cal_box, 2, LV_PART_MAIN);
@@ -355,12 +357,12 @@ void display_init() {
     lv_obj_set_scrollbar_mode(cal_box, LV_SCROLLBAR_MODE_OFF);
 
     _lbl_calendar = lv_label_create(cal_box);
-    lv_obj_set_size(_lbl_calendar, 254, 208);
+    lv_obj_set_size(_lbl_calendar, 388, 208);
     lv_obj_set_pos(_lbl_calendar, 6, 6);
     lv_label_set_long_mode(_lbl_calendar, LV_LABEL_LONG_CLIP);
     lv_label_set_text(_lbl_calendar, "loading...");
     lv_obj_set_style_text_color(_lbl_calendar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
-    lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_18, LV_PART_MAIN);
 
     // --- Ticker row: y=400, h=80, width=706 (status panel lives outside to the right) ---
     lv_obj_t* ticker_box = lv_obj_create(_scr_daily);

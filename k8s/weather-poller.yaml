@@ -24,7 +24,7 @@ spec:
             secretName: google-adc
       containers:
         - name: weather-poller
-          image: laminarflow:30500/housepanel/weather-poller:0.1.4
+          image: laminarflow:30500/housepanel/weather-poller:0.1.5
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8004

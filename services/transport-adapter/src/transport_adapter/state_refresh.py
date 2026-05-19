@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time as _time
 import httpx
 from shared.logging import make_logger, log_event
 from transport_adapter import state
@@ -17,6 +18,8 @@ async def handle_post_ota_refresh() -> None:
 
 
 async def _refresh_state(triggered_by: str) -> None:
+    await state.normal_queue.put({"cmd": "TIME", "epoch": int(_time.time())})
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{state.AGGREGATOR_URL}/internal/state")
