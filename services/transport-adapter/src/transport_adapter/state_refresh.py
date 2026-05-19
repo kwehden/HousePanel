@@ -1,8 +1,9 @@
 from __future__ import annotations
 import httpx
-from uuid import uuid4
 from shared.logging import make_logger, log_event
 from transport_adapter import state
+from transport_adapter.stream_decompose import decompose_command
+from uuid import uuid4
 
 logger = make_logger("transport-adapter")
 
@@ -28,28 +29,13 @@ async def _refresh_state(triggered_by: str) -> None:
 
     weather = data.get("weather")
     if weather:
-        cmd = {
-            "cmd": "WEATHER-UPDATE",
-            "message_id": str(uuid4()),
-            "temperature_c": weather.get("temperature_c"),
-            "conditions": weather.get("conditions"),
-            "humidity_pct": weather.get("humidity_pct"),
-            "wind_speed_ms": weather.get("wind_speed_ms"),
-            "icon_code": weather.get("icon_code"),
-            "today_high_c": weather.get("today_high_c"),
-            "today_low_c": weather.get("today_low_c"),
-            "forecast": weather.get("forecast", []),
-        }
-        await state.normal_queue.put(cmd)
+        for item in decompose_command("WEATHER-UPDATE", weather):
+            await state.normal_queue.put(item)
 
     calendar = data.get("calendar")
     if calendar:
-        cmd = {
-            "cmd": "CALENDAR-UPDATE",
-            "message_id": str(uuid4()),
-            "events": calendar.get("events", []),
-        }
-        await state.normal_queue.put(cmd)
+        for item in decompose_command("CALENDAR-UPDATE", calendar):
+            await state.normal_queue.put(item)
 
     ticker_queue = data.get("ticker_queue", [])
     for entry in ticker_queue:
@@ -57,13 +43,10 @@ async def _refresh_state(triggered_by: str) -> None:
         text = payload.get("narrative") or payload.get("text") or ""
         if not text:
             continue
-        ttl = entry.get("ttl_seconds", 60)
-        cmd = {
+        await state.normal_queue.put({
             "cmd": "TICKER-APPEND",
-            "message_id": str(uuid4()),
             "text": text,
-            "ttl_seconds": ttl,
-        }
-        await state.normal_queue.put(cmd)
+            "ttl_seconds": entry.get("ttl_seconds", 60),
+        })
 
     log_event(logger, "state_refreshed", triggered_by=triggered_by)

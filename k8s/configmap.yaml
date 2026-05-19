@@ -8,4 +8,4 @@ metadata:
 data:
   # Comma-separated Google Calendar IDs. Primary calendar is usually your Gmail address.
   # Additional IDs found in Google Calendar → Settings → [calendar] → Calendar ID.
-  GOOGLE_CALENDAR_ID: "you@example.com"
+  GOOGLE_CALENDAR_ID: "karl@wehden.com,c_1175c5ad70113a9b9cd8687fb64aaea96e1e8b1245bf28159055f29cd1312c89@group.calendar.google.com"

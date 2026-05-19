@@ -4,7 +4,7 @@ import os
 from fastapi import APIRouter, Request, Response
 from pydantic import ValidationError
 from .auth import validate_hmac_signature
-from .schemas import CameraWebhookPayloadV1, SystemAlertWebhookPayloadV1
+from .schemas import CameraWebhookV1, SystemAlertWebhookPayloadV1
 from .forwarder import forward_to_aggregator
 from shared.logging import make_logger, log_event
 
@@ -23,29 +23,41 @@ def _hmac_secret(env_var: str) -> str:
 async def camera_webhook(request: Request) -> Response:
     raw_body = await request.body()
     sig = request.headers.get("X-HousePanel-Signature")
-    secret = _hmac_secret("WEBHOOK_SECRET_UNIFI")
+    secret = _hmac_secret("CAMERA_WEBHOOK_SECRET")
 
     if not validate_hmac_signature(raw_body, sig, secret):
-        log_event(logger, "webhook_rejected", source="unifi-protect", reason="invalid_hmac")
+        log_event(logger, "webhook_rejected", source="unifi-camera-summarizer", reason="invalid_hmac")
         return Response(status_code=401)
 
     try:
-        payload = CameraWebhookPayloadV1.model_validate(json.loads(raw_body))
-    except (ValidationError, json.JSONDecodeError) as exc:
-        log_event(logger, "webhook_rejected", source="unifi-protect", reason="schema_invalid", detail=str(exc))
+        data = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        log_event(logger, "webhook_rejected", source="unifi-camera-summarizer", reason="malformed_json", detail=str(exc))
         return Response(status_code=400)
 
-    log_event(logger, "webhook_received", source="unifi-protect", camera_name=payload.camera_name)
+    try:
+        payload = CameraWebhookV1.model_validate(data)
+    except ValidationError as exc:
+        log_event(logger, "webhook_rejected", source="unifi-camera-summarizer", reason="schema_invalid", detail=str(exc))
+        return Response(status_code=422)
+
+    if payload.suppressed or not payload.gate_passed:
+        log_event(logger, "webhook_skipped", source="unifi-camera-summarizer",
+                  camera_label=payload.camera_label, suppressed=payload.suppressed,
+                  gate_passed=payload.gate_passed)
+        return Response(status_code=202)
+
+    log_event(logger, "webhook_received", source="unifi-camera-summarizer",
+              camera_label=payload.camera_label, event_id=payload.event_id)
     await forward_to_aggregator({
         "source": "webhook-receiver",
         "event_type": "ticker",
-        "timestamp": payload.timestamp,
+        "timestamp": payload.ts,
         "priority": 1,
         "ttl_seconds": 60,
         "payload": {
-            "camera_name": payload.camera_name,
-            "narrative": payload.narrative,
-            "gate": payload.gate,
+            "camera_name": payload.camera_label,
+            "narrative": payload.scene_summary,
         },
     })
     return Response(status_code=202)

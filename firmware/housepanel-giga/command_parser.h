@@ -4,46 +4,48 @@
 enum class CommandType {
     DOORBELL,
     TICKER_APPEND,
-    WEATHER_UPDATE,
-    CALENDAR_UPDATE,
+    WEATHER,        // current: temp, conditions, H, L
+    WEATHER_DAY,    // one forecast day: idx, label, H, L, conditions
+    CAL_EVENT,      // one calendar event: idx, summary, time, all_day
     OTA_PAUSE,
     OTA_RESUME,
     UNKNOWN
 };
 
-struct DoorbellData   { int timeout_seconds; };
-struct TickerData     { char text[256]; int ttl_seconds; };
-
-struct ForecastDay {
-    char day_label[8];    // "Mon", "Tue", etc.
-    float high_c;
-    float low_c;
-    char conditions[32];
-};
+struct DoorbellData { int timeout_seconds; };
+struct TickerData   { char text[128]; };
 
 struct WeatherData {
-    float temperature_c;
-    char conditions[64];
-    float humidity_pct;
-    float wind_speed_ms;
-    float today_high_c;
-    float today_low_c;
-    ForecastDay forecast[4];
+    float temp_c;
+    char  conditions[32];
+    float high_c;
+    float low_c;
 };
 
-struct CalendarData   { char events_json[2048]; };
+struct WeatherDayData {
+    int  idx;           // 0-3
+    char label[4];      // "Mon", etc.
+    float high_c;
+    float low_c;
+    char conditions[26];
+};
+
+struct CalEventData {
+    int  idx;           // 0-7; idx==0 clears the event buffer
+    char summary[52];
+    char time_str[18];  // "09:00" or "2026-05-17"
+    bool all_day;
+};
 
 struct CommandFrame {
     CommandType type;
-    char message_id[37];
     union {
         DoorbellData  doorbell;
         TickerData    ticker;
         WeatherData   weather;
-        CalendarData  calendar;
+        WeatherDayData weather_day;
+        CalEventData  cal_event;
     };
 };
 
-CommandType command_type_from_string(const char* cmd);
-bool parse_command_frame(const String& raw_json, CommandFrame& out);
-void format_calendar_events(const char* events_json, char* out_buf, size_t buf_size);
+bool parse_command_frame(const char* raw_json, CommandFrame& out);

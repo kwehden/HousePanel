@@ -24,47 +24,57 @@ bool ws_connected() {
 }
 
 void ws_send_hello(bool post_ota) {
-    String msg = "{\"cmd\":\"HELLO\",\"firmware_version\":\"";
-    msg += FIRMWARE_VERSION;
-    msg += "\",\"post_ota\":";
-    msg += post_ota ? "true" : "false";
-    msg += "}";
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "{\"cmd\":\"HELLO\",\"firmware_version\":\"%s\",\"post_ota\":%s}",
+             FIRMWARE_VERSION, post_ota ? "true" : "false");
     _ws.beginMessage(TYPE_TEXT);
-    _ws.print(msg);
+    _ws.print(buf);
     _ws.endMessage();
 }
 
+// All streaming messages are <200 bytes; 256 is ample.
+static const int WS_BUF_SIZE = 256;
+static char _ws_payload[WS_BUF_SIZE];
+
 void ws_loop() {
     int msg_size = _ws.parseMessage();
-    if (msg_size > 0) {
-        Serial.print("ws_loop: msg_size=");
-        Serial.println(msg_size);
-        // Wait until all payload bytes are in the TCP buffer.
-        // WiFiClient::read() is non-blocking; if bytes haven't arrived yet
-        // readString() appends 0xFF garbage and corrupts the JSON.
-        unsigned long wait_start = millis();
-        while (_wifi_client.available() < msg_size) {
-            if ((millis() - wait_start) > 1000) {
-                Serial.println("ws_loop: payload wait timeout");
+    if (msg_size <= 0) return;
+
+    Serial.print("ws_loop: msg_size=");
+    Serial.println(msg_size);
+
+    int cap = min(msg_size, WS_BUF_SIZE - 1);
+    int total = 0;
+    unsigned long t0 = millis();
+
+    while (total < cap) {
+        int b = _ws.read();
+        if (b >= 0) {
+            _ws_payload[total++] = (char)b;
+        } else {
+            if ((millis() - t0) > 2000) {
+                Serial.println("ws_loop: read timeout");
                 break;
             }
             delay(1);
         }
-        Serial.print("ws_loop: avail=");
-        Serial.println(_wifi_client.available());
-        String payload = _ws.readString();
-        Serial.print("ws_loop: payload len=");
-        Serial.print(payload.length());
-        Serial.print(" prefix=");
-        Serial.println(payload.substring(0, 60));
-        CommandFrame frame;
-        if (parse_command_frame(payload, frame)) {
-            g_last_frame = frame;
-            g_frame_ready = true;
-            Serial.print("ws_loop: parsed type=");
-            Serial.println((int)frame.type);
-        } else {
-            Serial.println("ws_loop: parse FAILED");
-        }
+    }
+    _ws_payload[total] = '\0';
+
+    Serial.print("ws_loop: read=");
+    Serial.print(total);
+    Serial.print(" prefix=");
+    Serial.write(_ws_payload, min(total, 60));
+    Serial.println();
+
+    CommandFrame frame;
+    if (parse_command_frame(_ws_payload, frame)) {
+        g_last_frame = frame;
+        g_frame_ready = true;
+        Serial.print("ws_loop: type=");
+        Serial.println((int)frame.type);
+    } else {
+        Serial.println("ws_loop: parse FAILED");
     }
 }

@@ -20,7 +20,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: webhook-receiver
-          image: laminarflow:30500/housepanel/webhook-receiver:0.1.0
+          image: laminarflow:30500/housepanel/webhook-receiver:0.1.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

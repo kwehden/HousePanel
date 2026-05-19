@@ -65,8 +65,15 @@ class GoogleCalendarClient:
         headers = {"Authorization": f"Bearer {self._credentials.token}"}
         all_events: list[CalendarEvent] = []
         for cal_id in self._calendar_ids:
-            events = self._fetch_from_calendar(cal_id, params, headers)
-            all_events.extend(events)
+            try:
+                events = self._fetch_from_calendar(cal_id, params, headers)
+                log_event(self._logger, "calendar_fetched",
+                          calendar_id=cal_id[:40], event_count=len(events))
+                all_events.extend(events)
+            except CalendarAPIError as exc:
+                log_event(self._logger, "calendar_fetch_error", level="warning",
+                          calendar_id=cal_id[:40], http_status=exc.http_status,
+                          error=exc.message[:120])
         all_events.sort(key=lambda e: e.start)
         log_event(self._logger, "fetch_events_success", event_count=len(all_events),
                   calendar_count=len(self._calendar_ids))

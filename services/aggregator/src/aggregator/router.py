@@ -23,12 +23,19 @@ async def route_event(
     ts = datetime.now(timezone.utc)
 
     if event_req.event_type == "doorbell-interrupt":
-        # CRITICAL: dispatch inline before returning — do NOT enqueue
         log_event(logger, "doorbell_routed", event_id=event_id, source=event_req.source)
+        device_name = event_req.payload.get("device_name", "Doorbell")
+        scene_desc = event_req.payload.get("scene_description", "")
+        from datetime import datetime as _dt
+        time_str = _dt.now().strftime("%-I:%M %p")
+        if scene_desc:
+            text = f"Ring {time_str}: {scene_desc}"
+        else:
+            text = f"Ring: {device_name}  {time_str}"
         await dispatch_command_to_transport(
-            cmd="DOORBELL",
-            priority=99,
-            payload=event_req.payload,
+            cmd="TICKER-APPEND",
+            priority=90,
+            payload={"text": text},
             event_id=event_id,
         )
         return

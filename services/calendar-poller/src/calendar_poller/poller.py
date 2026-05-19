@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -51,7 +52,8 @@ async def poll_google_calendar(
     log_event(logger, "poll_started")
     now = datetime.now(timezone.utc)
     time_min = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    time_max = time_min + timedelta(days=7)
+    lookahead = int(os.getenv("CALENDAR_LOOKAHEAD_DAYS", "30"))
+    time_max = time_min + timedelta(days=lookahead)
     start_mono = time.monotonic()
     try:
         events = await asyncio.to_thread(client.fetch_events, time_min, time_max)

@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from transport_adapter import state
 from transport_adapter.ws_handler import giga_websocket_handler
+from transport_adapter.stream_decompose import decompose_command
 
 router = APIRouter()
 
@@ -17,13 +18,18 @@ class CommandRequest(BaseModel):
 
 @router.post("/internal/commands", status_code=202)
 async def post_command(request: CommandRequest) -> JSONResponse:
-    command_dict = {"cmd": request.cmd, "message_id": request.event_id, **request.payload}
+    items = decompose_command(request.cmd, request.payload)
+
     if request.priority == 99:
-        state.interrupt_queue.put_nowait(command_dict)
+        for item in items:
+            state.interrupt_queue.put_nowait(item)
         return JSONResponse(status_code=202, content={"accepted": True})
-    if state.normal_queue.full():
+
+    if state.normal_queue.qsize() + len(items) > state.normal_queue.maxsize:
         return JSONResponse(status_code=503, content={"error": "normal queue full"})
-    state.normal_queue.put_nowait(command_dict)
+
+    for item in items:
+        state.normal_queue.put_nowait(item)
     return JSONResponse(status_code=202, content={"accepted": True})
 
 

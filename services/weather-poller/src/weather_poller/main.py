@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         args=[primary, fallback, state, aggregator_url, logger],
         id="poll_weather",
         replace_existing=True,
+        next_run_time=datetime.now(timezone.utc),
     )
     scheduler.start()
     log_event(

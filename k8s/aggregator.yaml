@@ -20,11 +20,13 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: aggregator
-          image: laminarflow:30500/housepanel/aggregator:0.1.1
+          image: laminarflow:30500/housepanel/aggregator:0.1.4
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
           env:
+            - name: TZ
+              value: "America/Los_Angeles"
             - name: PYTHONPATH
               value: "/app/src"
             - name: TRANSPORT_ADAPTER_URL
