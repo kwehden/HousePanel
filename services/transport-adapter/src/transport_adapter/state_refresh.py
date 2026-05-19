@@ -1,10 +1,14 @@
 from __future__ import annotations
 import time as _time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import httpx
 from shared.logging import make_logger, log_event
 from transport_adapter import state
 from transport_adapter.stream_decompose import decompose_command
 from uuid import uuid4
+
+_PACIFIC = ZoneInfo("America/Los_Angeles")
 
 logger = make_logger("transport-adapter")
 
@@ -18,7 +22,9 @@ async def handle_post_ota_refresh() -> None:
 
 
 async def _refresh_state(triggered_by: str) -> None:
-    await state.normal_queue.put({"cmd": "TIME", "epoch": int(_time.time())})
+    now_pacific = datetime.now(_PACIFIC)
+    utc_offset_min = int(now_pacific.utcoffset().total_seconds() / 60)
+    await state.normal_queue.put({"cmd": "TIME", "epoch": int(_time.time()), "utc_offset_min": utc_offset_min})
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

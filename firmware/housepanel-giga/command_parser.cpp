@@ -57,7 +57,8 @@ bool parse_command_frame(const char* raw_json, CommandFrame& out) {
 
     if (strcmp(cmd, "TIME") == 0) {
         out.type = CommandType::TIME_SYNC;
-        out.time_sync.epoch = (uint32_t)(doc["epoch"] | 0);
+        out.time_sync.epoch          = (uint32_t)(doc["epoch"] | 0);
+        out.time_sync.utc_offset_min = (int16_t)(doc["utc_offset_min"] | -480);
         return true;
     }
 

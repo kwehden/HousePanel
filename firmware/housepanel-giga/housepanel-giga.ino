@@ -6,8 +6,9 @@
 #include <mbed.h>
 #include <WiFi.h>
 
-static bool _rtc_synced    = false;
-static int  _last_clock_min = -1;
+static bool    _rtc_synced      = false;
+static int16_t _utc_offset_min  = -480;  // updated by TIME_SYNC; PST until corrected
+static int     _last_clock_min  = -1;
 
 static unsigned long _doorbell_start_ms = 0;
 static unsigned long _doorbell_timeout_ms = 0;
@@ -127,9 +128,12 @@ void loop() {
             case CommandType::TIME_SYNC:
                 if (g_last_frame.time_sync.epoch > 0) {
                     set_time((time_t)g_last_frame.time_sync.epoch);
+                    _utc_offset_min = g_last_frame.time_sync.utc_offset_min;
                     _rtc_synced = true;
-                    Serial.print("RTC synced from server epoch=");
-                    Serial.println(g_last_frame.time_sync.epoch);
+                    Serial.print("RTC synced epoch=");
+                    Serial.print(g_last_frame.time_sync.epoch);
+                    Serial.print(" offset_min=");
+                    Serial.println(_utc_offset_min);
                 }
                 break;
             case CommandType::OTA_PAUSE:
@@ -165,10 +169,7 @@ void loop() {
         }
         if (_rtc_synced) {
             time_t now = time(nullptr);
-            struct tm* utc = gmtime(&now);
-            int month = utc->tm_mon + 1;
-            int offset = (month >= 3 && month <= 10) ? -7 : -8;
-            now += (time_t)(offset * 3600);
+            now += (time_t)(_utc_offset_min * 60);
             struct tm* local = gmtime(&now);
             int cm = local->tm_min;
             if (cm != _last_clock_min) {

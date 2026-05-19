@@ -14,7 +14,7 @@ enum class CommandType {
 };
 
 struct DoorbellData { int timeout_seconds; };
-struct TimeSyncData { uint32_t epoch; };
+struct TimeSyncData { uint32_t epoch; int16_t utc_offset_min; };
 struct TickerData   { char text[128]; };
 
 struct WeatherData {
