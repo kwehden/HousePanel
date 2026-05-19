@@ -15,6 +15,7 @@ static DisplayState _state = DisplayState::DAILY_VIEW;
 static lv_obj_t* _scr_daily    = nullptr;
 static lv_obj_t* _lbl_calendar = nullptr;
 static lv_obj_t* _lbl_ticker   = nullptr;
+static lv_obj_t* _lbl_clock    = nullptr;
 
 // 5 weather cards: index 0=today, 1-4=forecast days
 static lv_obj_t* _weather_card[5]       = {};
@@ -319,10 +320,32 @@ void display_init() {
     lv_obj_set_scrollbar_mode(wx_tap, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_event_cb(wx_tap, unit_toggle_cb, LV_EVENT_CLICKED, nullptr);
 
-    // --- Calendar row: y=180, h=220 ---
+    // --- Middle row: y=180, h=220 — clock (2/3) | calendar (1/3) ---
+    // Clock panel: 534px wide
+    lv_obj_t* clock_box = lv_obj_create(_scr_daily);
+    lv_obj_set_size(clock_box, 534, 220);
+    lv_obj_set_pos(clock_box, 0, 180);
+    lv_obj_set_style_bg_color(clock_box, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_border_color(clock_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
+    lv_obj_set_style_border_width(clock_box, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(clock_box, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(clock_box, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(clock_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(clock_box, LV_SCROLLBAR_MODE_OFF);
+
+    _lbl_clock = lv_label_create(clock_box);
+    lv_obj_set_size(_lbl_clock, 530, 220);
+    lv_obj_set_pos(_lbl_clock, 2, 0);
+    lv_obj_set_style_text_align(_lbl_clock, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(_lbl_clock, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_clock, &lv_font_montserrat_48, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(_lbl_clock, 82, LV_PART_MAIN);
+    lv_label_set_text(_lbl_clock, "--:--");
+
+    // Calendar panel: 266px wide, right of clock
     lv_obj_t* cal_box = lv_obj_create(_scr_daily);
-    lv_obj_set_size(cal_box, 800, 220);
-    lv_obj_set_pos(cal_box, 0, 180);
+    lv_obj_set_size(cal_box, 266, 220);
+    lv_obj_set_pos(cal_box, 534, 180);
     lv_obj_set_style_bg_color(cal_box, lv_color_hex(0x000000), LV_PART_MAIN);
     lv_obj_set_style_border_color(cal_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
     lv_obj_set_style_border_width(cal_box, 2, LV_PART_MAIN);
@@ -332,12 +355,12 @@ void display_init() {
     lv_obj_set_scrollbar_mode(cal_box, LV_SCROLLBAR_MODE_OFF);
 
     _lbl_calendar = lv_label_create(cal_box);
-    lv_obj_set_size(_lbl_calendar, 784, 208);
-    lv_obj_set_pos(_lbl_calendar, 8, 6);
+    lv_obj_set_size(_lbl_calendar, 254, 208);
+    lv_obj_set_pos(_lbl_calendar, 6, 6);
     lv_label_set_long_mode(_lbl_calendar, LV_LABEL_LONG_CLIP);
-    lv_label_set_text(_lbl_calendar, "Calendar: loading...");
+    lv_label_set_text(_lbl_calendar, "loading...");
     lv_obj_set_style_text_color(_lbl_calendar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
-    lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_14, LV_PART_MAIN);
 
     // --- Ticker row: y=400, h=80, width=706 (status panel lives outside to the right) ---
     lv_obj_t* ticker_box = lv_obj_create(_scr_daily);
@@ -583,6 +606,13 @@ void display_update_status_detail(bool wifi_ok, const char* ip_str,
     if (_popup && !lv_obj_has_flag(_popup, LV_OBJ_FLAG_HIDDEN)) {
         refresh_popup_content();
     }
+}
+
+void display_update_clock(int h, int m) {
+    if (!_lbl_clock) return;
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02d:%02d", h, m);
+    lv_label_set_text(_lbl_clock, buf);
 }
 
 void display_service() { lv_timer_handler(); }

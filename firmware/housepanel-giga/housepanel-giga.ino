@@ -4,6 +4,36 @@
 #include "ws_client.h"
 #include "command_parser.h"
 #include <mbed.h>
+#include <WiFi.h>
+
+// NTP / clock state
+static unsigned long _ntp_epoch      = 0;   // UTC epoch captured from WiFi.getTime()
+static unsigned long _ntp_millis_ref = 0;   // millis() at capture time
+static int _last_clock_min           = -1;  // avoid redundant label updates
+
+// Simple US Pacific DST: UTC-7 (PDT) from March through October, UTC-8 (PST) otherwise.
+// Computes month from epoch to pick the offset, then returns h and m in local time.
+static void pacific_hm(unsigned long epoch, int& h, int& m) {
+    unsigned long days = epoch / 86400UL;
+    int year = 1970;
+    while (true) {
+        int yd = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 366 : 365;
+        if (days < (unsigned long)yd) break;
+        days -= yd;
+        year++;
+    }
+    const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    int month = 1;
+    for (int i = 0; i < 12; i++) {
+        int md = mdays[i] + (i == 1 && year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) ? 1 : 0);
+        if (days < (unsigned long)md) { month = i + 1; break; }
+        days -= md;
+    }
+    int offset_h = (month >= 3 && month <= 10) ? -7 : -8;
+    unsigned long local = epoch + (unsigned long)((offset_h + 24) * 3600);
+    h = (int)((local / 3600UL) % 24);
+    m = (int)((local / 60UL) % 60);
+}
 
 static unsigned long _doorbell_start_ms = 0;
 static unsigned long _doorbell_timeout_ms = 0;
@@ -21,6 +51,19 @@ void setup() {
     ws_init();
     if (ws_connect()) {
         ws_send_hello(false);
+    }
+    // Sync time via NTP — retry up to 5 times with 1s gap
+    for (int i = 0; i < 5 && _ntp_epoch == 0; i++) {
+        delay(1000);
+        display_service();
+        _ntp_epoch = WiFi.getTime();
+        _ntp_millis_ref = millis();
+    }
+    if (_ntp_epoch == 0) {
+        Serial.println("NTP sync failed, will retry each minute");
+    } else {
+        Serial.print("NTP epoch=");
+        Serial.println(_ntp_epoch);
     }
     mbed::Watchdog::get_instance().start(8000);
 }
@@ -135,6 +178,27 @@ void loop() {
         char ip_buf[20];
         snprintf(ip_buf, sizeof(ip_buf), "%d.%d.%d.%d", lip[0], lip[1], lip[2], lip[3]);
         display_update_status_detail(wifi_ok, ip_buf, ws_ok, data_ok, data_age_s);
+
+        // Update clock
+        if (_ntp_epoch == 0) {
+            // Still waiting for first sync — retry every minute
+            unsigned long fresh = WiFi.getTime();
+            if (fresh > 0) { _ntp_epoch = fresh; _ntp_millis_ref = millis(); }
+        }
+        if (_ntp_epoch > 0) {
+            unsigned long now_epoch = _ntp_epoch + (millis() - _ntp_millis_ref) / 1000UL;
+            int ch, cm;
+            pacific_hm(now_epoch, ch, cm);
+            if (cm != _last_clock_min) {
+                _last_clock_min = cm;
+                display_update_clock(ch, cm);
+            }
+            // Re-sync hourly to correct millis() drift
+            if ((millis() - _ntp_millis_ref) >= 3600000UL) {
+                unsigned long fresh = WiFi.getTime();
+                if (fresh > 0) { _ntp_epoch = fresh; _ntp_millis_ref = millis(); }
+            }
+        }
     }
     display_service();
     delay(5);
