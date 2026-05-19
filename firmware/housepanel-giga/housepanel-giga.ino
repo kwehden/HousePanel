@@ -4,6 +4,11 @@
 #include "ws_client.h"
 #include "command_parser.h"
 #include <mbed.h>
+#include <WiFi.h>
+
+static bool    _rtc_synced      = false;
+static int16_t _utc_offset_min  = -480;  // updated by TIME_SYNC; PST until corrected
+static int     _last_clock_min  = -1;
 
 static unsigned long _doorbell_start_ms = 0;
 static unsigned long _doorbell_timeout_ms = 0;
@@ -21,6 +26,16 @@ void setup() {
     ws_init();
     if (ws_connect()) {
         ws_send_hello(false);
+    }
+    // Seed the RTC from NTP
+    unsigned long epoch = WiFi.getTime();
+    if (epoch > 0) {
+        set_time((time_t)epoch);
+        _rtc_synced = true;
+        Serial.print("RTC set epoch=");
+        Serial.println(epoch);
+    } else {
+        Serial.println("NTP failed, will retry");
     }
     mbed::Watchdog::get_instance().start(8000);
 }
@@ -110,6 +125,17 @@ void loop() {
                 _last_data_rx_ms = millis();
                 break;
             }
+            case CommandType::TIME_SYNC:
+                if (g_last_frame.time_sync.epoch > 0) {
+                    set_time((time_t)g_last_frame.time_sync.epoch);
+                    _utc_offset_min = g_last_frame.time_sync.utc_offset_min;
+                    _rtc_synced = true;
+                    Serial.print("RTC synced epoch=");
+                    Serial.print(g_last_frame.time_sync.epoch);
+                    Serial.print(" offset_min=");
+                    Serial.println(_utc_offset_min);
+                }
+                break;
             case CommandType::OTA_PAUSE:
                 Serial.println("OTA_PAUSE received");
                 break;
@@ -135,6 +161,22 @@ void loop() {
         char ip_buf[20];
         snprintf(ip_buf, sizeof(ip_buf), "%d.%d.%d.%d", lip[0], lip[1], lip[2], lip[3]);
         display_update_status_detail(wifi_ok, ip_buf, ws_ok, data_ok, data_age_s);
+
+        // Update clock from RTC
+        if (!_rtc_synced) {
+            unsigned long epoch = WiFi.getTime();
+            if (epoch > 0) { set_time((time_t)epoch); _rtc_synced = true; }
+        }
+        if (_rtc_synced) {
+            time_t now = time(nullptr);
+            now += (time_t)(_utc_offset_min * 60);
+            struct tm* local = gmtime(&now);
+            int cm = local->tm_min;
+            if (cm != _last_clock_min) {
+                _last_clock_min = cm;
+                display_update_clock(local->tm_hour, cm);
+            }
+        }
     }
     display_service();
     delay(5);

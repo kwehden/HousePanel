@@ -7,12 +7,14 @@ enum class CommandType {
     WEATHER,        // current: temp, conditions, H, L
     WEATHER_DAY,    // one forecast day: idx, label, H, L, conditions
     CAL_EVENT,      // one calendar event: idx, summary, time, all_day
+    TIME_SYNC,      // server-pushed UTC epoch
     OTA_PAUSE,
     OTA_RESUME,
     UNKNOWN
 };
 
 struct DoorbellData { int timeout_seconds; };
+struct TimeSyncData { uint32_t epoch; int16_t utc_offset_min; };
 struct TickerData   { char text[128]; };
 
 struct WeatherData {
@@ -40,11 +42,12 @@ struct CalEventData {
 struct CommandFrame {
     CommandType type;
     union {
-        DoorbellData  doorbell;
-        TickerData    ticker;
-        WeatherData   weather;
+        DoorbellData   doorbell;
+        TickerData     ticker;
+        WeatherData    weather;
         WeatherDayData weather_day;
-        CalEventData  cal_event;
+        CalEventData   cal_event;
+        TimeSyncData   time_sync;
     };
 };
 

@@ -55,6 +55,13 @@ bool parse_command_frame(const char* raw_json, CommandFrame& out) {
         return true;
     }
 
+    if (strcmp(cmd, "TIME") == 0) {
+        out.type = CommandType::TIME_SYNC;
+        out.time_sync.epoch          = (uint32_t)(doc["epoch"] | 0);
+        out.time_sync.utc_offset_min = (int16_t)(doc["utc_offset_min"] | -480);
+        return true;
+    }
+
     if (strcmp(cmd, "OTA-PAUSE") == 0)  { out.type = CommandType::OTA_PAUSE;  return true; }
     if (strcmp(cmd, "OTA-RESUME") == 0) { out.type = CommandType::OTA_RESUME; return true; }
 

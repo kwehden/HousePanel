@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, date
+from zoneinfo import ZoneInfo
 
 import httpx
+
+_PACIFIC = ZoneInfo("America/Los_Angeles")
 
 from shared.models import WeatherConditions, ForecastDay
 from weather_poller.adapter import WeatherAPIError
@@ -67,12 +70,12 @@ class OpenWeatherMapAdapter:
             return []
 
         data = response.json()
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(_PACIFIC).date()
 
-        # Group 3-hour intervals by UTC date; skip today
+        # Group 3-hour intervals by Pacific date; skip today
         day_data: dict[date, dict] = {}
         for item in data.get("list", []):
-            item_dt = datetime.fromtimestamp(item["dt"], tz=timezone.utc)
+            item_dt = datetime.fromtimestamp(item["dt"], tz=_PACIFIC)
             d = item_dt.date()
             if d <= today:
                 continue

@@ -6,6 +6,8 @@
 #include <string.h>
 #include <stdio.h>
 
+LV_FONT_DECLARE(montserrat_96);
+
 Arduino_H7_Video Display(800, 480, GigaDisplayShield);
 static Arduino_GigaDisplayTouch _touch;
 
@@ -15,6 +17,7 @@ static DisplayState _state = DisplayState::DAILY_VIEW;
 static lv_obj_t* _scr_daily    = nullptr;
 static lv_obj_t* _lbl_calendar = nullptr;
 static lv_obj_t* _lbl_ticker   = nullptr;
+static lv_obj_t* _lbl_clock    = nullptr;
 
 // 5 weather cards: index 0=today, 1-4=forecast days
 static lv_obj_t* _weather_card[5]       = {};
@@ -319,10 +322,32 @@ void display_init() {
     lv_obj_set_scrollbar_mode(wx_tap, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_event_cb(wx_tap, unit_toggle_cb, LV_EVENT_CLICKED, nullptr);
 
-    // --- Calendar row: y=180, h=220 ---
+    // --- Middle row: y=180, h=220 — clock (2/3) | calendar (1/3) ---
+    // Clock panel: 400px wide (50%)
+    lv_obj_t* clock_box = lv_obj_create(_scr_daily);
+    lv_obj_set_size(clock_box, 400, 220);
+    lv_obj_set_pos(clock_box, 0, 180);
+    lv_obj_set_style_bg_color(clock_box, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_border_color(clock_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
+    lv_obj_set_style_border_width(clock_box, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(clock_box, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(clock_box, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(clock_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(clock_box, LV_SCROLLBAR_MODE_OFF);
+
+    _lbl_clock = lv_label_create(clock_box);
+    lv_obj_set_size(_lbl_clock, 396, 220);
+    lv_obj_set_pos(_lbl_clock, 2, 0);
+    lv_obj_set_style_text_align(_lbl_clock, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(_lbl_clock, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_clock, &montserrat_96, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(_lbl_clock, 62, LV_PART_MAIN);
+    lv_label_set_text(_lbl_clock, "--:--");
+
+    // Calendar panel: 400px wide (50%)
     lv_obj_t* cal_box = lv_obj_create(_scr_daily);
-    lv_obj_set_size(cal_box, 800, 220);
-    lv_obj_set_pos(cal_box, 0, 180);
+    lv_obj_set_size(cal_box, 400, 220);
+    lv_obj_set_pos(cal_box, 400, 180);
     lv_obj_set_style_bg_color(cal_box, lv_color_hex(0x000000), LV_PART_MAIN);
     lv_obj_set_style_border_color(cal_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
     lv_obj_set_style_border_width(cal_box, 2, LV_PART_MAIN);
@@ -332,12 +357,12 @@ void display_init() {
     lv_obj_set_scrollbar_mode(cal_box, LV_SCROLLBAR_MODE_OFF);
 
     _lbl_calendar = lv_label_create(cal_box);
-    lv_obj_set_size(_lbl_calendar, 784, 208);
-    lv_obj_set_pos(_lbl_calendar, 8, 6);
+    lv_obj_set_size(_lbl_calendar, 388, 208);
+    lv_obj_set_pos(_lbl_calendar, 6, 6);
     lv_label_set_long_mode(_lbl_calendar, LV_LABEL_LONG_CLIP);
-    lv_label_set_text(_lbl_calendar, "Calendar: loading...");
+    lv_label_set_text(_lbl_calendar, "loading...");
     lv_obj_set_style_text_color(_lbl_calendar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
-    lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_18, LV_PART_MAIN);
 
     // --- Ticker row: y=400, h=80, width=706 (status panel lives outside to the right) ---
     lv_obj_t* ticker_box = lv_obj_create(_scr_daily);
@@ -412,9 +437,9 @@ void display_init() {
     lv_obj_center(_lbl_doorbell);
 
     // --- Status popup (lv_layer_top, hidden until tapped) ---
-    // Size: 380×240. Centered via lv_obj_align to avoid lv_layer_top() padding surprises.
+    // Size: 380×290. Centered via lv_obj_align to avoid lv_layer_top() padding surprises.
     _popup = lv_obj_create(lv_layer_top());
-    lv_obj_set_size(_popup, 380, 240);
+    lv_obj_set_size(_popup, 380, 290);
     lv_obj_set_style_bg_color(_popup, lv_color_hex(0x0D1117), LV_PART_MAIN);
     lv_obj_set_style_border_color(_popup, lv_color_hex(0x3A7BD5), LV_PART_MAIN);
     lv_obj_set_style_border_width(_popup, 2, LV_PART_MAIN);
@@ -427,23 +452,23 @@ void display_init() {
 
     lv_obj_t* ptitle = lv_label_create(_popup);
     lv_obj_set_pos(ptitle, 14, 12);
-    lv_obj_set_style_text_font(ptitle, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ptitle, &lv_font_montserrat_28, LV_PART_MAIN);
     lv_obj_set_style_text_color(ptitle, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_label_set_text(ptitle, "System Status");
 
     // Top divider
     lv_obj_t* pdiv = lv_obj_create(_popup);
     lv_obj_set_size(pdiv, 352, 1);
-    lv_obj_set_pos(pdiv, 14, 44);
+    lv_obj_set_pos(pdiv, 14, 54);
     lv_obj_set_style_bg_color(pdiv, lv_color_hex(0x333355), LV_PART_MAIN);
     lv_obj_set_style_border_width(pdiv, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(pdiv, 0, LV_PART_MAIN);
 
-    // Content label (5 lines at montserrat_14 ≈ 18px each → 90px)
+    // Content label (5 lines at montserrat_20 ≈ 26px each → 130px)
     _popup_content = lv_label_create(_popup);
-    lv_obj_set_pos(_popup_content, 14, 52);
-    lv_obj_set_size(_popup_content, 352, 128);
-    lv_obj_set_style_text_font(_popup_content, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_pos(_popup_content, 14, 64);
+    lv_obj_set_size(_popup_content, 352, 148);
+    lv_obj_set_style_text_font(_popup_content, &lv_font_montserrat_20, LV_PART_MAIN);
     lv_obj_set_style_text_color(_popup_content, lv_color_hex(0xCCCCCC), LV_PART_MAIN);
     lv_label_set_long_mode(_popup_content, LV_LABEL_LONG_CLIP);
     lv_label_set_text(_popup_content, "Loading...");
@@ -451,15 +476,15 @@ void display_init() {
     // Bottom divider
     lv_obj_t* pdiv2 = lv_obj_create(_popup);
     lv_obj_set_size(pdiv2, 352, 1);
-    lv_obj_set_pos(pdiv2, 14, 188);
+    lv_obj_set_pos(pdiv2, 14, 220);
     lv_obj_set_style_bg_color(pdiv2, lv_color_hex(0x333355), LV_PART_MAIN);
     lv_obj_set_style_border_width(pdiv2, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(pdiv2, 0, LV_PART_MAIN);
 
     // CLOSE button — full width, obvious tap target
     lv_obj_t* pbtn = lv_obj_create(_popup);
-    lv_obj_set_size(pbtn, 352, 40);
-    lv_obj_set_pos(pbtn, 14, 194);
+    lv_obj_set_size(pbtn, 352, 48);
+    lv_obj_set_pos(pbtn, 14, 228);
     lv_obj_set_style_bg_color(pbtn, lv_color_hex(0x1E3A6E), LV_PART_MAIN);
     lv_obj_set_style_border_width(pbtn, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(pbtn, 6, LV_PART_MAIN);
@@ -468,9 +493,9 @@ void display_init() {
     lv_obj_add_flag(pbtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(pbtn, popup_close_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_t* pbtn_lbl = lv_label_create(pbtn);
-    lv_obj_set_size(pbtn_lbl, 352, 40);
+    lv_obj_set_size(pbtn_lbl, 352, 48);
     lv_obj_set_pos(pbtn_lbl, 0, 0);
-    lv_obj_set_style_text_font(pbtn_lbl, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(pbtn_lbl, &lv_font_montserrat_28, LV_PART_MAIN);
     lv_obj_set_style_text_color(pbtn_lbl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_align(pbtn_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_text(pbtn_lbl, "CLOSE");
@@ -583,6 +608,13 @@ void display_update_status_detail(bool wifi_ok, const char* ip_str,
     if (_popup && !lv_obj_has_flag(_popup, LV_OBJ_FLAG_HIDDEN)) {
         refresh_popup_content();
     }
+}
+
+void display_update_clock(int h, int m) {
+    if (!_lbl_clock) return;
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02d:%02d", h, m);
+    lv_label_set_text(_lbl_clock, buf);
 }
 
 void display_service() { lv_timer_handler(); }

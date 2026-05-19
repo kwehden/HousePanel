@@ -13,6 +13,7 @@ void render_doorbell_interrupt(int timeout_seconds);
 void dismiss_doorbell();
 DisplayState display_get_state();
 void display_service();
+void display_update_clock(int h, int m);
 void display_update_indicators(bool wifi_ok, bool ws_ok, bool data_ok);
 void display_update_status_detail(bool wifi_ok, const char* ip_str,
                                    bool ws_ok, bool data_ok,
