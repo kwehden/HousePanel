@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 
 import httpx
 
@@ -33,27 +33,33 @@ class WttrInAdapter:
                 http_status=response.status_code,
                 message=response.text[:200],
             )
-        data = response.json()
+        try:
+            data = response.json()
+            cur = data["current_condition"][0]
+            temp_c = float(cur["temp_C"])
+            conditions = cur["weatherDesc"][0]["value"].lower()
+            humidity = float(cur["humidity"])
+            wind_ms = float(cur["windspeedKmph"]) / 3.6
 
-        cur = data["current_condition"][0]
-        temp_c = float(cur["temp_C"])
-        conditions = cur["weatherDesc"][0]["value"].lower()
-        humidity = float(cur["humidity"])
-        wind_ms = float(cur["windspeedKmph"]) / 3.6
+            today_data = data["weather"][0]
+            today_high = float(today_data["maxtempC"])
+            today_low = float(today_data["mintempC"])
 
-        today_data = data["weather"][0]
-        today_high = float(today_data["maxtempC"])
-        today_low = float(today_data["mintempC"])
-
-        forecast: list[ForecastDay] = []
-        for day_data in data["weather"][1:3]:
-            d = datetime.strptime(day_data["date"], "%Y-%m-%d").date()
-            forecast.append(ForecastDay(
-                day_label=d.strftime("%a"),
-                high_c=float(day_data["maxtempC"]),
-                low_c=float(day_data["mintempC"]),
-                conditions=_midday_conditions(day_data.get("hourly", [])),
-            ))
+            forecast: list[ForecastDay] = []
+            for day_data in data["weather"][1:3]:
+                d = datetime.strptime(day_data["date"], "%Y-%m-%d")
+                forecast.append(ForecastDay(
+                    day_label=d.strftime("%a"),
+                    high_c=float(day_data["maxtempC"]),
+                    low_c=float(day_data["mintempC"]),
+                    conditions=_midday_conditions(day_data.get("hourly", [])),
+                ))
+        except (KeyError, IndexError, ValueError) as exc:
+            raise WeatherAPIError(
+                provider=self.provider_name,
+                http_status=200,
+                message=f"Unexpected response structure: {exc}",
+            ) from exc
 
         return WeatherConditions(
             provider=self.provider_name,
