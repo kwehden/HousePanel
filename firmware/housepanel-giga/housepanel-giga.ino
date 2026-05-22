@@ -60,6 +60,10 @@ void loop() {
                 _doorbell_start_ms = millis();
                 _doorbell_timeout_ms = (unsigned long)g_last_frame.doorbell.timeout_seconds * 1000UL;
                 break;
+            case CommandType::TICKER_APPEND:
+                Serial.print("TICKER: ");
+                Serial.println(g_last_frame.ticker.text);
+                break;
             case CommandType::SYSMON_TEMP:
                 Serial.print("SYSMON: t=");
                 Serial.println(g_last_frame.sysmon.temp_c);

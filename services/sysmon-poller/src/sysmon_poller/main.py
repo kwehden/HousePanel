@@ -48,7 +48,7 @@ async def _poll() -> None:
             if hist_resp.status_code == 200:
                 history = [round(float(r["t"]), 1) for r in hist_resp.json()]
 
-            await client.post(
+            agg_resp = await client.post(
                 f"{_AGGREGATOR_URL}/internal/events",
                 json={
                     "source": "sysmon-poller",
@@ -64,6 +64,10 @@ async def _poll() -> None:
                     "ttl_seconds": 90,
                 },
             )
+            if agg_resp.status_code not in (200, 204):
+                log_event(logger, "aggregator_post_failed", level="warning",
+                          status=agg_resp.status_code)
+                return
             log_event(logger, "poll_success", temp_c=temp_c, history_count=len(history))
     except Exception as exc:
         log_event(logger, "poll_error", level="warning", error=str(exc))

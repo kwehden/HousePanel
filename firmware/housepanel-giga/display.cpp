@@ -595,6 +595,8 @@ void display_update_sysmon(float temp_c, int16_t* history, int count) {
             _spark_pts[i].y = (lv_value_precise_t)((int)(SPARK_H - 2) - (int)(((float)history[i] - mn) / range * (float)(SPARK_H - 4)));
         }
         lv_line_set_points(_spark_line, _spark_pts, (uint32_t)count);
+    } else if (_spark_line) {
+        lv_line_set_points(_spark_line, _spark_pts, 0);
     }
 }
 

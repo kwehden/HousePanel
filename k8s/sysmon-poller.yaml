@@ -19,7 +19,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: sysmon-poller
-          image: laminarflow:30500/housepanel/sysmon-poller:0.1.0
+          image: laminarflow:30500/housepanel/sysmon-poller:0.1.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8005
