@@ -152,11 +152,12 @@ void loop() {
         _last_indicator_ms = millis();
 
         // Force reconnect if data has gone stale while apparently connected.
-        // Triggers a fresh HELLO → state refresh on the next loop iteration.
+        // 10 min threshold: safely beyond calendar poll (5 min) but well
+        // before weather poll (15 min), so only genuine staleness triggers it.
         if (ws_connected() &&
             _last_data_rx_ms > 0 &&
-            (millis() - _last_data_rx_ms) >= 300000UL) {
-            Serial.println("Data stale >5min while connected — forcing reconnect");
+            (millis() - _last_data_rx_ms) >= 600000UL) {
+            Serial.println("Data stale >10min while connected — forcing reconnect");
             ws_disconnect();
         }
 
