@@ -7,8 +7,8 @@
 #include <WiFi.h>
 
 static bool    _rtc_synced      = false;
-static int16_t _utc_offset_min  = -480;  // updated by TIME_SYNC; PST until corrected
-static int     _last_clock_min  = -1;
+static int16_t _utc_offset_min  = -480;  // updated by TIME_SYNC; PDT=-420 PST=-480
+static int     _last_clock_hhmm = -1;
 
 static unsigned long _doorbell_start_ms = 0;
 static unsigned long _doorbell_timeout_ms = 0;
@@ -27,16 +27,7 @@ void setup() {
     if (ws_connect()) {
         ws_send_hello(false);
     }
-    // Seed the RTC from NTP
-    unsigned long epoch = WiFi.getTime();
-    if (epoch > 0) {
-        set_time((time_t)epoch);
-        _rtc_synced = true;
-        Serial.print("RTC set epoch=");
-        Serial.println(epoch);
-    } else {
-        Serial.println("NTP failed, will retry");
-    }
+    // RTC is seeded by the first TIME command the server sends in response to HELLO.
     mbed::Watchdog::get_instance().start(8000);
 }
 
@@ -150,6 +141,7 @@ void loop() {
     }
     if ((millis() - _last_indicator_ms) >= 1000) {
         _last_indicator_ms = millis();
+
         bool wifi_ok = wifi_status_ok();
         bool ws_ok   = ws_connected();
         bool data_ok = (_last_data_rx_ms > 0) && ((millis() - _last_data_rx_ms) < 90000UL);
@@ -162,19 +154,15 @@ void loop() {
         snprintf(ip_buf, sizeof(ip_buf), "%d.%d.%d.%d", lip[0], lip[1], lip[2], lip[3]);
         display_update_status_detail(wifi_ok, ip_buf, ws_ok, data_ok, data_age_s);
 
-        // Update clock from RTC
-        if (!_rtc_synced) {
-            unsigned long epoch = WiFi.getTime();
-            if (epoch > 0) { set_time((time_t)epoch); _rtc_synced = true; }
-        }
+        // Update clock from RTC (seeded by server TIME command on connect)
         if (_rtc_synced) {
             time_t now = time(nullptr);
             now += (time_t)(_utc_offset_min * 60);
             struct tm* local = gmtime(&now);
-            int cm = local->tm_min;
-            if (cm != _last_clock_min) {
-                _last_clock_min = cm;
-                display_update_clock(local->tm_hour, cm);
+            int hhmm = local->tm_hour * 100 + local->tm_min;
+            if (hhmm != _last_clock_hhmm) {
+                _last_clock_hhmm = hhmm;
+                display_update_clock(local->tm_hour, local->tm_min);
             }
         }
     }

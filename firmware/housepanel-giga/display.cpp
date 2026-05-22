@@ -90,10 +90,10 @@ static lv_color_t conditions_color(const char* cond) {
     return lv_color_hex(0xFF8C00);
 }
 
-// Build one weather card at x offset.
-static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
+// Build one weather card at x offset.  card_width is caller-supplied.
+static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx, int card_width) {
     lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_set_size(card, 160, 180);
+    lv_obj_set_size(card, card_width, 180);
     lv_obj_set_pos(card, x_pos, 0);
     lv_obj_set_style_pad_all(card, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(card, lv_color_hex(0x000000), LV_PART_MAIN);
@@ -104,7 +104,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
     lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_t* lbl_day = lv_label_create(card);
-    lv_obj_set_size(lbl_day, 156, 20);
+    lv_obj_set_size(lbl_day, card_width - 4, 20);
     lv_obj_set_pos(lbl_day, 2, 6);
     lv_obj_set_style_text_align(lbl_day, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_day, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
@@ -114,7 +114,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
     lv_obj_t* icon = lv_obj_create(card);
     int icon_size = (card_idx == 0) ? 36 : 32;
     lv_obj_set_size(icon, icon_size, icon_size);
-    lv_obj_set_pos(icon, (160 - icon_size) / 2, 30);
+    lv_obj_set_pos(icon, (card_width - icon_size) / 2, 30);
     lv_obj_set_style_radius(icon, icon_size / 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(icon, lv_color_hex(0x444444), LV_PART_MAIN);
     lv_obj_set_style_border_width(icon, 0, LV_PART_MAIN);
@@ -125,7 +125,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
 
     if (card_idx == 0) {
         lv_obj_t* lbl_cur = lv_label_create(card);
-        lv_obj_set_size(lbl_cur, 156, 36);
+        lv_obj_set_size(lbl_cur, card_width - 4, 36);
         lv_obj_set_pos(lbl_cur, 2, 74);
         lv_obj_set_style_text_align(lbl_cur, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(lbl_cur, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
@@ -134,7 +134,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
         _weather_lbl_cur[0] = lbl_cur;
 
         lv_obj_t* lbl_high = lv_label_create(card);
-        lv_obj_set_size(lbl_high, 156, 26);
+        lv_obj_set_size(lbl_high, card_width - 4, 26);
         lv_obj_set_pos(lbl_high, 2, 116);
         lv_obj_set_style_text_align(lbl_high, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(lbl_high, lv_color_hex(0xFF8C00), LV_PART_MAIN);
@@ -143,7 +143,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
         _weather_lbl_high[0] = lbl_high;
 
         lv_obj_t* lbl_low = lv_label_create(card);
-        lv_obj_set_size(lbl_low, 156, 26);
+        lv_obj_set_size(lbl_low, card_width - 4, 26);
         lv_obj_set_pos(lbl_low, 2, 144);
         lv_obj_set_style_text_align(lbl_low, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(lbl_low, lv_color_hex(0x66AAFF), LV_PART_MAIN);
@@ -154,7 +154,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
         _weather_lbl_cond[0] = nullptr;
     } else {
         lv_obj_t* lbl_high = lv_label_create(card);
-        lv_obj_set_size(lbl_high, 156, 26);
+        lv_obj_set_size(lbl_high, card_width - 4, 26);
         lv_obj_set_pos(lbl_high, 2, 72);
         lv_obj_set_style_text_align(lbl_high, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(lbl_high, lv_color_hex(0xFF8C00), LV_PART_MAIN);
@@ -163,7 +163,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
         _weather_lbl_high[card_idx] = lbl_high;
 
         lv_obj_t* lbl_low = lv_label_create(card);
-        lv_obj_set_size(lbl_low, 156, 26);
+        lv_obj_set_size(lbl_low, card_width - 4, 26);
         lv_obj_set_pos(lbl_low, 2, 100);
         lv_obj_set_style_text_align(lbl_low, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(lbl_low, lv_color_hex(0x66AAFF), LV_PART_MAIN);
@@ -172,7 +172,7 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx) {
         _weather_lbl_low[card_idx] = lbl_low;
 
         lv_obj_t* lbl_cond = lv_label_create(card);
-        lv_obj_set_size(lbl_cond, 154, 20);
+        lv_obj_set_size(lbl_cond, card_width - 6, 20);
         lv_obj_set_pos(lbl_cond, 3, 134);
         lv_obj_set_style_text_align(lbl_cond, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(lbl_cond, lv_color_hex(0x888888), LV_PART_MAIN);
@@ -205,7 +205,7 @@ static void _render_today() {
 }
 
 static void _render_forecast(int c) {
-    if (c < 1 || c > 4 || !_forecast_wx[c - 1].valid) return;
+    if (c < 1 || c > 2 || !_forecast_wx[c - 1].valid) return;
     int fi = c - 1;
     char buf[48];
     lv_color_t col = conditions_color(_forecast_wx[fi].conditions);
@@ -224,7 +224,7 @@ static void unit_toggle_cb(lv_event_t* e) {
     last_ms = now;
     _show_fahrenheit = !_show_fahrenheit;
     _render_today();
-    for (int c = 1; c <= 4; c++) _render_forecast(c);
+    for (int c = 1; c <= 2; c++) _render_forecast(c);
 }
 
 // --- Status popup helpers ---
@@ -306,8 +306,12 @@ void display_init() {
     lv_obj_remove_flag(weather_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(weather_row, LV_SCROLLBAR_MODE_OFF);
 
-    for (int i = 0; i < 5; i++) {
-        _weather_card[i] = make_weather_card(weather_row, i * 160, i);
+    // 3 cards fill 800px: today=280, two forecast=260 each
+    static const int WX_CARD_W[3] = {280, 260, 260};
+    int wx_x = 0;
+    for (int i = 0; i < 3; i++) {
+        _weather_card[i] = make_weather_card(weather_row, wx_x, i, WX_CARD_W[i]);
+        wx_x += WX_CARD_W[i];
     }
 
     // Transparent tap overlay — created AFTER cards so it sits on top in Z-order.
@@ -530,7 +534,7 @@ void render_weather_today(float temp_c, const char* conditions, float high_c, fl
 }
 
 void render_weather_day(int idx, const char* label, float high_c, float low_c, const char* conditions) {
-    if (idx < 0 || idx > 3) return;
+    if (idx < 0 || idx > 1) return;
     _forecast_wx[idx].high_c = high_c;
     _forecast_wx[idx].low_c  = low_c;
     strncpy(_forecast_wx[idx].label, label ? label : "", sizeof(_forecast_wx[idx].label) - 1);

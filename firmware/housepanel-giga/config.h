@@ -5,4 +5,4 @@
 #include "secrets.h"
 
 #define TRANSPORT_ADAPTER_WS_PATH "/ws/panel"
-#define FIRMWARE_VERSION "0.3.7"
+#define FIRMWARE_VERSION "0.4.1"

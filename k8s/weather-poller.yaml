@@ -24,7 +24,7 @@ spec:
             secretName: google-adc
       containers:
         - name: weather-poller
-          image: laminarflow:30500/housepanel/weather-poller:0.1.5
+          image: laminarflow:30500/housepanel/weather-poller:0.1.6
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8004
@@ -39,7 +39,7 @@ spec:
             - name: WEATHER_POLL_INTERVAL_SECONDS
               value: "900"
             - name: WEATHER_PRIMARY_PROVIDER
-              value: "openweathermap"
+              value: "wttr_in"
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: "/secrets/google-adc/application_default_credentials.json"
             - name: LOG_LEVEL

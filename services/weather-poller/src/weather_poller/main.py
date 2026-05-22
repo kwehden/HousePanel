@@ -12,6 +12,7 @@ from shared.logging import make_logger, log_event
 from weather_poller.adapter import WeatherAdapter
 from weather_poller.adapters.google import GoogleWeatherAdapter
 from weather_poller.adapters.openweathermap import OpenWeatherMapAdapter
+from weather_poller.adapters.wttr_in import WttrInAdapter
 from weather_poller.poller import WeatherPollerState, poll_weather
 
 logger = make_logger("weather-poller")
@@ -23,11 +24,13 @@ def _build_adapters() -> tuple[WeatherAdapter, WeatherAdapter]:
     google_location = os.environ.get("GOOGLE_WEATHER_LOCATION", "0,0")
     owm_key = os.environ.get("OPENWEATHERMAP_API_KEY", "")
     owm_location = os.environ.get("OPENWEATHERMAP_LOCATION", "London")
-
     google = GoogleWeatherAdapter(api_key=google_key, location=google_location)
     owm = OpenWeatherMapAdapter(api_key=owm_key, location=owm_location)
+    wttr = WttrInAdapter(location=os.environ.get("WTTR_LOCATION", ""))
 
     primary_env = os.environ.get("WEATHER_PRIMARY_PROVIDER", "google").lower()
+    if primary_env == "wttr_in":
+        return wttr, owm
     if primary_env == "openweathermap":
         return owm, google
     return google, owm
