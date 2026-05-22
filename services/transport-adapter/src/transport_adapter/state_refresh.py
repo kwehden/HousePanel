@@ -46,6 +46,11 @@ async def _refresh_state(triggered_by: str) -> None:
         for item in decompose_command("CALENDAR-UPDATE", calendar):
             await state.normal_queue.put(item)
 
+    sysmon = data.get("sysmon")
+    if sysmon:
+        for item in decompose_command("SYSMON-UPDATE", sysmon):
+            await state.normal_queue.put(item)
+
     ticker_queue = data.get("ticker_queue", [])
     for entry in ticker_queue:
         payload = entry.get("payload", {})

@@ -20,7 +20,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: transport-adapter
-          image: laminarflow:30500/housepanel/transport-adapter:0.1.5
+          image: laminarflow:30500/housepanel/transport-adapter:0.1.6
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8002

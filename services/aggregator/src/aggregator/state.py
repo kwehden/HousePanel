@@ -1,18 +1,31 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from shared.models import WeatherConditions, CalendarState
+
+
+@dataclass
+class SysmonData:
+    temp_c: float
+    history: list[float]
+    label: str
+    timestamp: datetime
 
 
 @dataclass
 class AggregatorState:
     last_weather: WeatherConditions | None = None
     last_calendar: CalendarState | None = None
+    last_sysmon: SysmonData | None = None
 
     def update_weather(self, w: WeatherConditions) -> None:
         self.last_weather = w
 
     def update_calendar(self, c: CalendarState) -> None:
         self.last_calendar = c
+
+    def update_sysmon(self, s: SysmonData) -> None:
+        self.last_sysmon = s
 
     def to_dict(self) -> dict:
         weather = None
@@ -43,4 +56,13 @@ class AggregatorState:
                     for e in c.events
                 ],
             }
-        return {"weather": weather, "calendar": calendar}
+        sysmon = None
+        if self.last_sysmon:
+            s = self.last_sysmon
+            sysmon = {
+                "temp_c": s.temp_c,
+                "history": s.history,
+                "label": s.label,
+                "timestamp": s.timestamp.isoformat(),
+            }
+        return {"weather": weather, "calendar": calendar, "sysmon": sysmon}

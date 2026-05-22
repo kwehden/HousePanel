@@ -62,6 +62,24 @@ bool parse_command_frame(const char* raw_json, CommandFrame& out) {
         return true;
     }
 
+    if (strcmp(cmd, "SYSMON_TEMP") == 0) {
+        out.type = CommandType::SYSMON_TEMP;
+        out.sysmon.temp_c = doc["t"] | 0.0f;
+        out.sysmon.count  = 0;
+        const char* h_str = doc["h"] | "";
+        if (h_str && *h_str) {
+            char buf[128];
+            strncpy(buf, h_str, sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = '\0';
+            char* tok = strtok(buf, ",");
+            while (tok && out.sysmon.count < 20) {
+                out.sysmon.history[out.sysmon.count++] = (int16_t)atoi(tok);
+                tok = strtok(nullptr, ",");
+            }
+        }
+        return true;
+    }
+
     if (strcmp(cmd, "OTA-PAUSE") == 0)  { out.type = CommandType::OTA_PAUSE;  return true; }
     if (strcmp(cmd, "OTA-RESUME") == 0) { out.type = CommandType::OTA_RESUME; return true; }
 

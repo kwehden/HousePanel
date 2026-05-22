@@ -11,6 +11,8 @@ def decompose_command(cmd: str, payload: dict) -> list[dict]:
         return _weather_stream(payload)
     if cmd == "CALENDAR-UPDATE":
         return _calendar_stream(payload)
+    if cmd == "SYSMON-UPDATE":
+        return _sysmon_stream(payload)
     return [{**payload, "cmd": cmd}]
 
 
@@ -35,6 +37,13 @@ def _weather_stream(p: dict) -> list[dict]:
             "c": (day.get("conditions") or "")[:24],
         })
     return msgs
+
+
+def _sysmon_stream(p: dict) -> list[dict]:
+    temp_c = float(p.get("temp_c") or 0.0)
+    history = p.get("history") or []
+    h_str = ",".join(str(round(v)) for v in history[-20:])
+    return [{"cmd": "SYSMON_TEMP", "t": round(temp_c, 1), "h": h_str}]
 
 
 def _calendar_stream(p: dict) -> list[dict]:

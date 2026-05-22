@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: housepanel-sysmon-poller
+  namespace: housepanel
+  labels:
+    app: housepanel-sysmon-poller
+    app.kubernetes.io/part-of: housepanel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: housepanel-sysmon-poller
+  template:
+    metadata:
+      labels:
+        app: housepanel-sysmon-poller
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: sysmon-poller
+          image: laminarflow:30500/housepanel/sysmon-poller:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8005
+          env:
+            - name: PYTHONPATH
+              value: "/app/src"
+            - name: AGGREGATOR_URL
+              value: "http://housepanel-aggregator:8001"
+            - name: ARDTEMP_URL
+              value: "http://ardtemp-service.ardtemp.svc.cluster.local:8000"
+            - name: ARDTEMP_BOARD_ID
+              value: "r4wifi"
+            - name: ARDTEMP_LABEL
+              value: "CPU Rad Intake"
+            - name: SYSMON_POLL_INTERVAL_SECONDS
+              value: "30"
+            - name: SYSMON_HISTORY_WINDOW_SECONDS
+              value: "3600"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8005
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8005
+            initialDelaySeconds: 10
+            periodSeconds: 30

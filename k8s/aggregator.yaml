@@ -20,7 +20,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: aggregator
-          image: laminarflow:30500/housepanel/aggregator:0.1.4
+          image: laminarflow:30500/housepanel/aggregator:0.1.5
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
