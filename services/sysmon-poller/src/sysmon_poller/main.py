@@ -64,7 +64,7 @@ async def _poll() -> None:
                     "ttl_seconds": 90,
                 },
             )
-            if agg_resp.status_code not in (200, 204):
+            if agg_resp.status_code not in (200, 202, 204):
                 log_event(logger, "aggregator_post_failed", level="warning",
                           status=agg_resp.status_code)
                 return
