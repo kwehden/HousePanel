@@ -150,6 +150,16 @@ void loop() {
     }
     if ((millis() - _last_indicator_ms) >= 1000) {
         _last_indicator_ms = millis();
+
+        // Force reconnect if data has gone stale while apparently connected.
+        // Triggers a fresh HELLO → state refresh on the next loop iteration.
+        if (ws_connected() &&
+            _last_data_rx_ms > 0 &&
+            (millis() - _last_data_rx_ms) >= 300000UL) {
+            Serial.println("Data stale >5min while connected — forcing reconnect");
+            ws_disconnect();
+        }
+
         bool wifi_ok = wifi_status_ok();
         bool ws_ok   = ws_connected();
         bool data_ok = (_last_data_rx_ms > 0) && ((millis() - _last_data_rx_ms) < 90000UL);
