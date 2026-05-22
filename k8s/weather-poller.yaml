@@ -40,8 +40,6 @@ spec:
               value: "900"
             - name: WEATHER_PRIMARY_PROVIDER
               value: "wttr_in"
-            - name: WTTR_LOCATION
-              value: "Seattle"
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: "/secrets/google-adc/application_default_credentials.json"
             - name: LOG_LEVEL

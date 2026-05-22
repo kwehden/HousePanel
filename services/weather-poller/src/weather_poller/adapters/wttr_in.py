@@ -20,11 +20,12 @@ def _midday_conditions(hourly: list[dict]) -> str:
 class WttrInAdapter:
     provider_name = "wttr_in"
 
-    def __init__(self, location: str) -> None:
+    def __init__(self, location: str = "") -> None:
         self._location = location
         self._client = httpx.Client(timeout=10)
 
     def fetch_current(self) -> WeatherConditions:
+        # Empty location → wttr.in uses the request IP for geolocation
         url = f"https://wttr.in/{self._location}"
         response = self._client.get(url, params={"format": "j1"})
         if response.status_code >= 300:

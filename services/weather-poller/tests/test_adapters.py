@@ -1,4 +1,4 @@
-"""Tests for Google and OpenWeatherMap adapters using mocked httpx.Client."""
+"""Tests for Google, OpenWeatherMap, and wttr.in adapters using mocked httpx.Client."""
 from __future__ import annotations
 
 import json
@@ -9,6 +9,7 @@ import pytest
 from weather_poller.adapter import WeatherAPIError
 from weather_poller.adapters.google import GoogleWeatherAdapter
 from weather_poller.adapters.openweathermap import OpenWeatherMapAdapter
+from weather_poller.adapters.wttr_in import WttrInAdapter
 
 
 def _mock_response(status_code: int, body: dict | str) -> MagicMock:
@@ -115,3 +116,85 @@ class TestOpenWeatherMapAdapter:
                 adapter.fetch_current()
 
         assert exc_info.value.http_status == 500
+
+
+WTTR_VALID_RESPONSE = {
+    "current_condition": [{
+        "temp_C": "14",
+        "humidity": "78",
+        "windspeedKmph": "18",
+        "weatherDesc": [{"value": "Partly cloudy"}],
+    }],
+    "weather": [
+        {
+            "date": "2026-05-22",
+            "maxtempC": "17",
+            "mintempC": "9",
+            "hourly": [
+                {"time": "0",    "weatherDesc": [{"value": "Cloudy"}]},
+                {"time": "1200", "weatherDesc": [{"value": "Partly cloudy"}]},
+            ],
+        },
+        {
+            "date": "2026-05-23",
+            "maxtempC": "19",
+            "mintempC": "11",
+            "hourly": [{"time": "1200", "weatherDesc": [{"value": "Sunny"}]}],
+        },
+        {
+            "date": "2026-05-24",
+            "maxtempC": "16",
+            "mintempC": "8",
+            "hourly": [{"time": "1200", "weatherDesc": [{"value": "Light rain"}]}],
+        },
+    ],
+}
+
+
+class TestWttrInAdapter:
+    def test_fetch_current_valid_response(self) -> None:
+        adapter = WttrInAdapter(location="Seattle")
+        mock_resp = _mock_response(200, WTTR_VALID_RESPONSE)
+
+        with patch.object(adapter._client, "get", return_value=mock_resp):
+            result = adapter.fetch_current()
+
+        assert result.provider == "wttr_in"
+        assert result.temperature_c == 14.0
+        assert result.conditions == "partly cloudy"
+        assert result.humidity_pct == 78.0
+        assert round(result.wind_speed_ms, 1) == round(18 / 3.6, 1)
+        assert result.today_high_c == 17.0
+        assert result.today_low_c == 9.0
+        assert len(result.forecast) == 2
+        assert result.forecast[0].day_label == "Sat"
+        assert result.forecast[0].high_c == 19.0
+        assert result.forecast[0].conditions == "sunny"
+        assert result.forecast[1].day_label == "Sun"
+        assert result.forecast[1].conditions == "light rain"
+
+    def test_fetch_current_4xx_raises_weather_api_error(self) -> None:
+        adapter = WttrInAdapter(location="Seattle")
+        mock_resp = _mock_response(404, "Not Found")
+
+        with patch.object(adapter._client, "get", return_value=mock_resp):
+            with pytest.raises(WeatherAPIError) as exc_info:
+                adapter.fetch_current()
+
+        err = exc_info.value
+        assert err.provider == "wttr_in"
+        assert err.http_status == 404
+
+    def test_fetch_current_malformed_response_raises_weather_api_error(self) -> None:
+        """A structurally unexpected response raises WeatherAPIError, not KeyError."""
+        adapter = WttrInAdapter(location="Seattle")
+        mock_resp = _mock_response(200, {"current_condition": []})  # empty list → IndexError
+
+        with patch.object(adapter._client, "get", return_value=mock_resp):
+            with pytest.raises(WeatherAPIError) as exc_info:
+                adapter.fetch_current()
+
+        err = exc_info.value
+        assert err.provider == "wttr_in"
+        assert err.http_status == 200
+        assert "Unexpected response structure" in str(err)

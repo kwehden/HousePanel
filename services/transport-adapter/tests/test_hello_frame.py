@@ -67,8 +67,15 @@ async def test_hello_frame_enqueues_weather_and_calendar():
         queued.append(state.normal_queue.get_nowait())
 
     cmds = [q["cmd"] for q in queued]
+    assert "TIME" in cmds, f"TIME not enqueued; got {cmds}"
     assert "WEATHER-UPDATE" in cmds, f"WEATHER-UPDATE not enqueued; got {cmds}"
     assert "CALENDAR-UPDATE" in cmds, f"CALENDAR-UPDATE not enqueued; got {cmds}"
+
+    time_cmd = next(q for q in queued if q["cmd"] == "TIME")
+    assert "epoch" in time_cmd, "TIME command missing epoch"
+    assert "utc_offset_min" in time_cmd, "TIME command missing utc_offset_min"
+    assert isinstance(time_cmd["epoch"], int) and time_cmd["epoch"] > 0
+    assert cmds.index("TIME") == 0, "TIME must be first in the queue"
 
     weather_cmd = next(q for q in queued if q["cmd"] == "WEATHER-UPDATE")
     assert weather_cmd["temperature_c"] == 18.5
