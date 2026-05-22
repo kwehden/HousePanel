@@ -47,12 +47,14 @@ static uint32_t _s_data_age = 0;
 static lv_obj_t* _scr_doorbell = nullptr;
 static lv_obj_t* _lbl_doorbell = nullptr;
 
-// Ticker ring buffer
-static const int TICKER_BUF_COUNT = 8;
-static char _ticker_buf[TICKER_BUF_COUNT][128];
-static int  _ticker_head = 0;
-static int  _ticker_count = 0;
-static char _ticker_combined[1024];
+// Sysmon (red row)
+static lv_obj_t*          _lbl_sysmon  = nullptr;
+static lv_obj_t*          _spark_line  = nullptr;
+static lv_point_precise_t _spark_pts[20];
+
+// Sparkline dimensions (pixels within its container)
+static const int SPARK_W = 296;
+static const int SPARK_H = 56;
 
 // C/F toggle and cached weather values
 static bool _show_fahrenheit = false;
@@ -368,25 +370,48 @@ void display_init() {
     lv_obj_set_style_text_color(_lbl_calendar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
     lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_18, LV_PART_MAIN);
 
-    // --- Ticker row: y=400, h=80, width=706 (status panel lives outside to the right) ---
-    lv_obj_t* ticker_box = lv_obj_create(_scr_daily);
-    lv_obj_set_size(ticker_box, 706, 80);
-    lv_obj_set_pos(ticker_box, 0, 400);
-    lv_obj_set_style_bg_color(ticker_box, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_border_color(ticker_box, lv_color_hex(0xE94560), LV_PART_MAIN);
-    lv_obj_set_style_border_width(ticker_box, 2, LV_PART_MAIN);
-    lv_obj_set_style_radius(ticker_box, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(ticker_box, 0, LV_PART_MAIN);
-    lv_obj_remove_flag(ticker_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(ticker_box, LV_SCROLLBAR_MODE_OFF);
+    // --- Sysmon row: y=400, h=80, width=706 — left label | right sparkline ---
+    lv_obj_t* sysmon_box = lv_obj_create(_scr_daily);
+    lv_obj_set_size(sysmon_box, 706, 80);
+    lv_obj_set_pos(sysmon_box, 0, 400);
+    lv_obj_set_style_bg_color(sysmon_box, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_border_color(sysmon_box, lv_color_hex(0xE94560), LV_PART_MAIN);
+    lv_obj_set_style_border_width(sysmon_box, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(sysmon_box, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(sysmon_box, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(sysmon_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(sysmon_box, LV_SCROLLBAR_MODE_OFF);
 
-    _lbl_ticker = lv_label_create(ticker_box);
-    lv_label_set_long_mode(_lbl_ticker, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_size(_lbl_ticker, 698, 76);
-    lv_obj_set_pos(_lbl_ticker, 4, 2);
-    lv_label_set_text(_lbl_ticker, "");
-    lv_obj_set_style_text_color(_lbl_ticker, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(_lbl_ticker, &lv_font_montserrat_20, LV_PART_MAIN);
+    // Left: temp label (0–384px)
+    _lbl_sysmon = lv_label_create(sysmon_box);
+    lv_obj_set_size(_lbl_sysmon, 378, 30);
+    lv_obj_set_pos(_lbl_sysmon, 6, 25);
+    lv_obj_set_style_text_color(_lbl_sysmon, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_sysmon, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_label_set_text(_lbl_sysmon, "CPU Rad: -- | --");
+
+    // Divider
+    lv_obj_t* sdiv = lv_obj_create(sysmon_box);
+    lv_obj_set_size(sdiv, 1, 64);
+    lv_obj_set_pos(sdiv, 390, 8);
+    lv_obj_set_style_bg_color(sdiv, lv_color_hex(0x444444), LV_PART_MAIN);
+    lv_obj_set_style_border_width(sdiv, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(sdiv, 0, LV_PART_MAIN);
+
+    // Right: sparkline container (392–700px, 308px wide × 64px tall, centred in 80px)
+    lv_obj_t* spark_box = lv_obj_create(sysmon_box);
+    lv_obj_set_size(spark_box, SPARK_W, SPARK_H);
+    lv_obj_set_pos(spark_box, 398, (80 - SPARK_H) / 2);
+    lv_obj_set_style_bg_opa(spark_box, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(spark_box, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(spark_box, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(spark_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(spark_box, LV_SCROLLBAR_MODE_OFF);
+
+    _spark_line = lv_line_create(spark_box);
+    lv_obj_set_style_line_color(_spark_line, lv_color_hex(0xFF8C00), LV_PART_MAIN);
+    lv_obj_set_style_line_width(_spark_line, 2, LV_PART_MAIN);
+    lv_obj_set_style_line_rounded(_spark_line, true, LV_PART_MAIN);
 
     // Status panel — sits outside the red ticker border, directly in _scr_daily.
     // 94×80 at x=706, y=400 fills the remaining screen width (706+94=800).
@@ -550,30 +575,30 @@ void render_calendar_section(const char* events_text) {
     lv_label_set_text(_lbl_calendar, events_text ? events_text : "No events");
 }
 
-void ticker_append(const char* text) {
-    if (!text || !_lbl_ticker) return;
-    int idx = (_ticker_head + _ticker_count) % TICKER_BUF_COUNT;
-    if (_ticker_count < TICKER_BUF_COUNT) {
-        _ticker_count++;
-    } else {
-        _ticker_head = (_ticker_head + 1) % TICKER_BUF_COUNT;
+void display_update_sysmon(float temp_c, int16_t* history, int count) {
+    if (_lbl_sysmon) {
+        char buf[52];
+        float f = temp_c * 9.0f / 5.0f + 32.0f;
+        snprintf(buf, sizeof(buf), "CPU Rad: %.0f\xc2\xb0""C | %.0f\xc2\xb0""F", temp_c, f);
+        lv_label_set_text(_lbl_sysmon, buf);
     }
-    strncpy(_ticker_buf[idx], text, sizeof(_ticker_buf[0]) - 1);
-    _ticker_buf[idx][sizeof(_ticker_buf[0]) - 1] = '\0';
-
-    int off = 0;
-    for (int i = 0; i < _ticker_count; i++) {
-        int pos = (_ticker_head + i) % TICKER_BUF_COUNT;
-        int rem = (int)sizeof(_ticker_combined) - off;
-        if (rem <= 1) break;
-        off += snprintf(_ticker_combined + off, (size_t)rem, "%s%s",
-                        _ticker_buf[pos],
-                        (i < _ticker_count - 1) ? " | " : "");
+    if (_spark_line && count > 1) {
+        float mn = (float)history[0], mx = (float)history[0];
+        for (int i = 1; i < count; i++) {
+            if ((float)history[i] < mn) mn = (float)history[i];
+            if ((float)history[i] > mx) mx = (float)history[i];
+        }
+        float range = mx - mn;
+        if (range < 1.0f) range = 1.0f;
+        for (int i = 0; i < count; i++) {
+            _spark_pts[i].x = (lv_value_precise_t)(i * (SPARK_W - 1) / (count - 1));
+            _spark_pts[i].y = (lv_value_precise_t)((int)(SPARK_H - 2) - (int)(((float)history[i] - mn) / range * (float)(SPARK_H - 4)));
+        }
+        lv_line_set_points(_spark_line, _spark_pts, (uint32_t)count);
+    } else if (_spark_line) {
+        lv_line_set_points(_spark_line, _spark_pts, 0);
     }
-    lv_label_set_text(_lbl_ticker, _ticker_combined);
 }
-
-void ticker_advance() {}
 
 void render_doorbell_interrupt(int timeout_seconds) {
     if (_popup) lv_obj_add_flag(_popup, LV_OBJ_FLAG_HIDDEN);

@@ -8,6 +8,7 @@ enum class CommandType {
     WEATHER_DAY,    // one forecast day: idx, label, H, L, conditions
     CAL_EVENT,      // one calendar event: idx, summary, time, all_day
     TIME_SYNC,      // server-pushed UTC epoch
+    SYSMON_TEMP,    // CPU temp + sparkline history
     OTA_PAUSE,
     OTA_RESUME,
     UNKNOWN
@@ -39,6 +40,12 @@ struct CalEventData {
     bool all_day;
 };
 
+struct SysmonData {
+    float   temp_c;
+    int16_t history[20];
+    uint8_t count;
+};
+
 struct CommandFrame {
     CommandType type;
     union {
@@ -48,6 +55,7 @@ struct CommandFrame {
         WeatherDayData weather_day;
         CalEventData   cal_event;
         TimeSyncData   time_sync;
+        SysmonData     sysmon;
     };
 };
 

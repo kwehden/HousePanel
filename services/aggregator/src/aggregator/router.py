@@ -71,6 +71,23 @@ async def route_event(
         )
         return
 
+    if event_req.event_type == "sysmon-update":
+        from .state import SysmonData
+        s = SysmonData(
+            temp_c=float(event_req.payload.get("temp_c", 0.0)),
+            history=list(event_req.payload.get("history", [])),
+            label=str(event_req.payload.get("label", "Sensor")),
+            timestamp=ts,
+        )
+        state.update_sysmon(s)
+        await dispatch_command_to_transport(
+            cmd="SYSMON-UPDATE",
+            priority=0,
+            payload=state.to_dict()["sysmon"],
+            event_id=event_id,
+        )
+        return
+
     if event_req.event_type == "calendar-update":
         from shared.models import CalendarState, CalendarEvent
         events = [
