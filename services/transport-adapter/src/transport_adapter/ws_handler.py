@@ -42,7 +42,7 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
             tg.create_task(_read_loop(websocket))
             tg.create_task(ws_write_loop(websocket))
     except* WebSocketDisconnect:
-        pass
+        log_event(logger, "giga_ws_disconnected_clean")
     except* Exception as eg:
         log_event(logger, "giga_ws_error", level="warning",
                   errors=[type(e).__name__ for e in eg.exceptions])

@@ -110,4 +110,4 @@ async def test_hello_frame_drains_stale_queue():
 
     cmds = [q["cmd"] for q in queued]
     assert cmds[0] == "TIME", f"TIME must be first after drain; got {cmds}"
-    assert cmds.count("SYSMON_TEMP") <= 1, "Stale SYSMON_TEMP items not drained"
+    assert cmds.count("SYSMON_TEMP") == 0, "Stale SYSMON_TEMP items not drained"

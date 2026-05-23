@@ -31,19 +31,34 @@ def test_circuit_closes_on_success():
     cb.record_failure()
     cb.record_failure()
     assert cb.state == "open"
-    # Simulate reset_timeout elapsed so it half-opens
+    # Simulate reset_timeout elapsed
     cb._opened_at -= 31.0
-    assert cb.allow_request() is True  # transitions to half_open
+    # First allow_request() in OPEN after timeout: transitions to HALF_OPEN,
+    # then allow_request() re-arms to OPEN and returns True (probe slot)
+    assert cb.allow_request() is True
     cb.record_success()
     assert cb.state == "closed"
     assert cb.allow_request() is True
+
+
+def test_circuit_half_open_gates_burst():
+    """Only the first caller after reset_timeout gets the probe; subsequent callers see OPEN."""
+    cb = CircuitBreaker(failure_threshold=1, reset_timeout=60.0)
+    cb.record_failure()
+    assert cb.state == "open"
+    # Simulate reset_timeout elapsed
+    cb._opened_at -= 61.0
+    # First call: gets the probe slot; circuit re-arms to OPEN with fresh opened_at
+    assert cb.allow_request() is True
+    # Second call: OPEN again but timeout has NOT elapsed — burst is gated
+    assert cb.allow_request() is False
 
 
 def test_circuit_half_open_failure_reopens():
     cb = CircuitBreaker(failure_threshold=1, reset_timeout=0.0)
     cb.record_failure()
     assert cb.state == "open"
-    assert cb.allow_request() is True  # half_open after timeout=0
+    assert cb.allow_request() is True  # probe slot
     cb.record_failure()
     assert cb.state == "open"
 
@@ -70,8 +85,8 @@ def test_ttl_medium_priority():
 
 
 def test_ttl_low_priority():
-    assert _ttl_for_priority(0) == 60.0
-    assert _ttl_for_priority(4) == 60.0
+    assert _ttl_for_priority(0) == 90.0
+    assert _ttl_for_priority(4) == 90.0
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +147,7 @@ async def test_503_triggers_backoff_requeue():
     assert worker._queue.qsize() == 1
     item = worker._queue.get_nowait()
     assert item.attempts >= 1
-    assert item.not_before > time.monotonic() - 0.1  # scheduled in the future
+    assert item.not_before > time.monotonic()  # scheduled in the future
 
 
 @pytest.mark.asyncio
@@ -200,3 +215,28 @@ async def test_queue_full_drops_gracefully():
     # Third enqueue exceeds maxsize — should not raise
     worker.enqueue("C", priority=5, payload={}, event_id="3")
     assert worker._queue.qsize() == 2
+
+
+@pytest.mark.asyncio
+async def test_circuit_open_pauses_drain():
+    """When circuit is open, no HTTP calls are made until reset_timeout elapses."""
+    worker, mock_client = _make_worker()
+    # Force circuit open with a long timeout
+    worker._circuit._failure_threshold = 1
+    worker._circuit._reset_timeout = 3600.0
+    worker._circuit.record_failure()
+    assert worker._circuit.state == "open"
+
+    worker.enqueue("WEATHER-UPDATE", priority=5, payload={}, event_id="ev-4")
+
+    with patch("aggregator.dispatch_worker.httpx.AsyncClient", return_value=mock_client):
+        task = asyncio.create_task(worker.run())
+        await asyncio.sleep(0.15)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    mock_client.post.assert_not_called()
+    assert worker._queue.qsize() == 1  # item still waiting

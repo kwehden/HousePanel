@@ -18,15 +18,13 @@ _BACKOFF_MAX = 30.0
 _FAILURE_THRESHOLD = 5
 _RESET_TIMEOUT = 30.0
 
-_seq_counter: itertools.count = itertools.count()
-
 
 def _ttl_for_priority(priority: int) -> float:
     if priority >= 90:
         return 300.0   # urgent (doorbell): 5 min
     if priority >= 5:
-        return 120.0   # structured updates (weather, calendar): 2 min
-    return 60.0        # sysmon: 1 min
+        return 120.0   # structured updates (weather, calendar, sysmon ≥5): 2 min
+    return 90.0        # sysmon priority-0: matches 90s display staleness threshold
 
 
 @dataclass(order=True)
@@ -69,11 +67,13 @@ class CircuitBreaker:
             return True
         if self._state == _CircuitState.OPEN:
             if time.monotonic() - self._opened_at >= self._reset_timeout:
+                # Grant exactly one probe slot; state stays HALF_OPEN until the
+                # probe outcome arrives via record_success or record_failure.
                 self._state = _CircuitState.HALF_OPEN
                 return True
             return False
-        # HALF_OPEN — allow exactly one probe
-        return True
+        # HALF_OPEN: probe already dispatched — block until outcome is recorded.
+        return False
 
     def record_success(self) -> None:
         self._failures = 0
@@ -93,6 +93,7 @@ class DispatchWorker:
         self._url = f"{transport_url}/internal/commands"
         self._queue: asyncio.PriorityQueue[_Command] = asyncio.PriorityQueue(maxsize=maxsize)
         self._circuit = CircuitBreaker()
+        self._seq: itertools.count = itertools.count()
 
     # -- public API ----------------------------------------------------------
 
@@ -100,7 +101,7 @@ class DispatchWorker:
         now = time.monotonic()
         item = _Command(
             neg_priority=-priority,
-            seq=next(_seq_counter),
+            seq=next(self._seq),
             not_before=now,
             expires_at=now + _ttl_for_priority(priority),
             attempts=0,
@@ -146,7 +147,13 @@ class DispatchWorker:
 
             # Command not yet eligible for retry — put it back and yield briefly
             if now < item.not_before:
-                self._queue.put_nowait(item)
+                try:
+                    self._queue.put_nowait(item)
+                except asyncio.QueueFull:
+                    log_event(
+                        logger, "dispatch_queue_full_on_reinsert",
+                        level="warning", cmd=item.cmd, event_id=item.event_id,
+                    )
                 await asyncio.sleep(min(0.1, item.not_before - now))
                 continue
 
