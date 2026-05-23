@@ -26,7 +26,7 @@ def _event(event_id: str, expired: bool = False) -> UnifiedEvent:
 async def test_drain_dispatches_valid_event(mock_dispatch):
     q = TickerQueue()
     await q.enqueue(_event("good"))
-    task = asyncio.create_task(ticker_drain_loop(q, "http://mock-transport:8002"))
+    task = asyncio.create_task(ticker_drain_loop(q))
     await asyncio.sleep(0.05)
     task.cancel()
     try:
@@ -42,7 +42,7 @@ async def test_drain_dispatches_valid_event(mock_dispatch):
 async def test_drain_skips_expired_event(mock_dispatch):
     q = TickerQueue()
     await q.enqueue(_event("expired", expired=True))
-    task = asyncio.create_task(ticker_drain_loop(q, "http://mock-transport:8002"))
+    task = asyncio.create_task(ticker_drain_loop(q))
     await asyncio.sleep(0.05)
     task.cancel()
     try:
