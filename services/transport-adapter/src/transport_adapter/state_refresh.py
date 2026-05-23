@@ -20,7 +20,17 @@ async def handle_hello_frame(frame: dict) -> None:
             state.normal_queue.get_nowait()
         except asyncio.QueueEmpty:
             break
+    asyncio.create_task(_trigger_poller_refresh())
     await _refresh_state(triggered_by="hello")
+
+
+async def _trigger_poller_refresh() -> None:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(f"{state.AGGREGATOR_URL}/internal/refresh")
+        log_event(logger, "poller_refresh_triggered")
+    except Exception as exc:
+        log_event(logger, "poller_refresh_trigger_failed", level="warning", error=str(exc))
 
 
 async def handle_post_ota_refresh() -> None:
