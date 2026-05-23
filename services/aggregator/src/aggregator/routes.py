@@ -63,7 +63,9 @@ async def internal_refresh() -> JSONResponse:
     async def _ping(url: str) -> None:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                await client.post(f"{url}/internal/poll-now")
+                resp = await client.post(f"{url}/internal/poll-now")
+            if resp.status_code not in (200, 202):
+                log_event(logger, "refresh_ping_rejected", level="warning", url=url, status=resp.status_code)
         except Exception as exc:
             log_event(logger, "refresh_ping_failed", level="warning", url=url, error=str(exc))
 
