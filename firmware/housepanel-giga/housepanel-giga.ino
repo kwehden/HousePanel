@@ -14,8 +14,6 @@ static unsigned long _doorbell_start_ms = 0;
 static unsigned long _doorbell_timeout_ms = 0;
 static unsigned long _last_data_rx_ms = 0;
 static unsigned long _last_indicator_ms = 0;
-static unsigned long _ws_connected_ms = 0;
-static const unsigned long WS_STALE_TIMEOUT_MS = 90000UL;
 
 static char _cal_text[512];
 static int  _cal_text_len = 0;
@@ -27,7 +25,6 @@ void setup() {
     wifi_connect(display_service);
     ws_init();
     if (ws_connect()) {
-        _ws_connected_ms = millis();
         ws_send_hello(false);
     }
     // RTC is seeded by the first TIME command the server sends in response to HELLO.
@@ -50,16 +47,7 @@ void loop() {
     }
     if (!ws_connected()) {
         if (ws_connect()) {
-            _ws_connected_ms = millis();
             ws_send_hello(false);
-        }
-    } else {
-        unsigned long since_connect = millis() - _ws_connected_ms;
-        unsigned long since_data    = (_last_data_rx_ms > 0) ? (millis() - _last_data_rx_ms) : since_connect;
-        if (_ws_connected_ms > 0 && since_connect > WS_STALE_TIMEOUT_MS && since_data > WS_STALE_TIMEOUT_MS) {
-            Serial.println("ws: stale connection, forcing reconnect");
-            ws_force_disconnect();
-            _ws_connected_ms = 0;
         }
     }
     ws_loop();

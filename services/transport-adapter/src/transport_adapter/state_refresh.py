@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import time as _time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -14,6 +15,11 @@ logger = make_logger("transport-adapter")
 
 
 async def handle_hello_frame(frame: dict) -> None:
+    while True:
+        try:
+            state.normal_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
     await _refresh_state(triggered_by="hello")
 
 

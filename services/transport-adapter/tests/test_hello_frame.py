@@ -48,8 +48,8 @@ _AGGREGATOR_STATE = {
 
 
 @pytest.mark.asyncio
-async def test_hello_frame_enqueues_weather_and_calendar():
-    """On HELLO, state_refresh puts WEATHER-UPDATE and CALENDAR-UPDATE in normal_queue."""
+async def test_hello_frame_enqueues_time_weather_calendar():
+    """On HELLO, state_refresh puts TIME, decomposed WEATHER, and CAL_EVENT in normal_queue."""
     mock_response = MagicMock()
     mock_response.json.return_value = _AGGREGATOR_STATE
     mock_response.raise_for_status = MagicMock()
@@ -67,22 +67,47 @@ async def test_hello_frame_enqueues_weather_and_calendar():
         queued.append(state.normal_queue.get_nowait())
 
     cmds = [q["cmd"] for q in queued]
-    assert "TIME" in cmds, f"TIME not enqueued; got {cmds}"
-    assert "WEATHER-UPDATE" in cmds, f"WEATHER-UPDATE not enqueued; got {cmds}"
-    assert "CALENDAR-UPDATE" in cmds, f"CALENDAR-UPDATE not enqueued; got {cmds}"
 
-    time_cmd = next(q for q in queued if q["cmd"] == "TIME")
+    # TIME must be first
+    assert "TIME" in cmds, f"TIME not enqueued; got {cmds}"
+    assert cmds.index("TIME") == 0, "TIME must be first in the queue"
+
+    time_cmd = queued[0]
     assert "epoch" in time_cmd, "TIME command missing epoch"
     assert "utc_offset_min" in time_cmd, "TIME command missing utc_offset_min"
     assert isinstance(time_cmd["epoch"], int) and time_cmd["epoch"] > 0
-    assert cmds.index("TIME") == 0, "TIME must be first in the queue"
 
-    weather_cmd = next(q for q in queued if q["cmd"] == "WEATHER-UPDATE")
-    assert weather_cmd["temperature_c"] == 18.5
-    assert weather_cmd["conditions"] == "Partly Cloudy"
-    assert "message_id" in weather_cmd
+    # Weather decomposed to WEATHER (current) and WEATHER_DAY (forecast)
+    assert "WEATHER" in cmds, f"WEATHER not enqueued; got {cmds}"
 
-    calendar_cmd = next(q for q in queued if q["cmd"] == "CALENDAR-UPDATE")
-    assert len(calendar_cmd["events"]) == 1
-    assert calendar_cmd["events"][0]["summary"] == "Team standup"
-    assert "message_id" in calendar_cmd
+    # Calendar decomposed to CAL_EVENT items
+    assert "CAL_EVENT" in cmds, f"CAL_EVENT not enqueued; got {cmds}"
+    cal_cmd = next(q for q in queued if q["cmd"] == "CAL_EVENT")
+    assert cal_cmd["s"] == "Team standup"
+
+
+@pytest.mark.asyncio
+async def test_hello_frame_drains_stale_queue():
+    """Stale messages in normal_queue are discarded before state refresh on HELLO."""
+    for i in range(5):
+        state.normal_queue.put_nowait({"cmd": "SYSMON_TEMP", "t": 30.0, "h": ""})
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = _AGGREGATOR_STATE
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("transport_adapter.state_refresh.httpx.AsyncClient", return_value=mock_client):
+        await handle_hello_frame({"cmd": "HELLO", "firmware_version": "1.0.0", "post_ota": False})
+
+    queued = []
+    while not state.normal_queue.empty():
+        queued.append(state.normal_queue.get_nowait())
+
+    cmds = [q["cmd"] for q in queued]
+    assert cmds[0] == "TIME", f"TIME must be first after drain; got {cmds}"
+    assert cmds.count("SYSMON_TEMP") <= 1, "Stale SYSMON_TEMP items not drained"

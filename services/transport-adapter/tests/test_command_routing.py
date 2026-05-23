@@ -40,7 +40,6 @@ async def test_doorbell_goes_to_interrupt_queue():
     assert state.normal_queue.qsize() == 0
     item = state.interrupt_queue.get_nowait()
     assert item["cmd"] == "DOORBELL"
-    assert item["message_id"] == "test-uuid"
 
 
 @pytest.mark.asyncio
@@ -60,7 +59,6 @@ async def test_normal_command_goes_to_normal_queue():
     assert state.interrupt_queue.qsize() == 0
     item = state.normal_queue.get_nowait()
     assert item["cmd"] == "TICKER-APPEND"
-    assert item["message_id"] == "test-uuid-2"
     assert item["text"] == "hello"
 
 

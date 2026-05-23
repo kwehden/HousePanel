@@ -23,8 +23,9 @@ async def test_doorbell_dispatched_inline(mock_dispatch):
     await route_event(_req("doorbell-interrupt", {"device_id": "d1"}), s, q, d)
     mock_dispatch.assert_awaited_once()
     call_kwargs = mock_dispatch.call_args
-    assert call_kwargs.kwargs["cmd"] == "DOORBELL" or call_kwargs.args[0] == "DOORBELL"
-    # Must NOT be enqueued
+    assert call_kwargs.kwargs["cmd"] == "TICKER-APPEND"
+    assert call_kwargs.kwargs["priority"] == 90
+    # Must NOT be enqueued to the ticker queue
     snapshot = await q.snapshot()
     assert len(snapshot) == 0
 

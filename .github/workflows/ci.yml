@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - aggregator
+          - calendar-poller
+          - ring-integration
+          - shared
+          - transport-adapter
+          - weather-poller
+          - webhook-receiver
+    name: pytest / ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install shared
+        run: pip install -e services/shared
+
+      - name: Install ${{ matrix.service }}
+        run: pip install -e "services/${{ matrix.service }}"
+
+      - name: Install test tools
+        run: pip install pytest pytest-asyncio httpx
+
+      - name: Run tests
+        run: pytest "services/${{ matrix.service }}/tests" -v --asyncio-mode=auto
