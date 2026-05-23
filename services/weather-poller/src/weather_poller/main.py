@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         next_run_time=datetime.now(timezone.utc),
     )
     scheduler.start()
+    app.state.poll_args = (primary, fallback, state, aggregator_url, logger)
     log_event(
         logger,
         "scheduler_started",
@@ -69,6 +71,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.post("/internal/poll-now", status_code=202)
+async def poll_now() -> dict:
+    primary, fallback, poller_state, aggregator_url, _logger = app.state.poll_args
+    asyncio.create_task(poll_weather(primary, fallback, poller_state, aggregator_url, _logger))
+    return {"accepted": True}
 
 
 @app.get("/healthz")

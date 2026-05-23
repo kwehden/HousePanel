@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     scheduler.start()
     app.state.poller_state = state
+    app.state.poll_args = (calendar_client, state, AGGREGATOR_URL, logger)
     try:
         yield
     finally:
@@ -40,6 +42,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.post("/internal/poll-now", status_code=202)
+async def poll_now() -> dict:
+    client, poller_state, aggregator_url, _logger = app.state.poll_args
+    asyncio.create_task(poll_google_calendar(client, poller_state, aggregator_url, _logger))
+    return {"accepted": True}
 
 
 @app.get("/healthz")

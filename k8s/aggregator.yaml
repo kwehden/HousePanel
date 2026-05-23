@@ -20,7 +20,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: aggregator
-          image: laminarflow:30500/housepanel/aggregator:0.1.6
+          image: laminarflow:30500/housepanel/aggregator:0.1.7
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
@@ -41,6 +41,10 @@ spec:
               value: "1"
             - name: DOORBELL_TIMEOUT_SECONDS
               value: "30"
+            - name: WEATHER_POLLER_URL
+              value: "http://housepanel-weather-poller:8004"
+            - name: CALENDAR_POLLER_URL
+              value: "http://housepanel-calendar-poller:8003"
             - name: LOG_LEVEL
               value: "INFO"
           resources:
