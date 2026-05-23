@@ -19,6 +19,10 @@ bool ws_connect() {
     return (rc == 0);
 }
 
+void ws_force_disconnect() {
+    _ws.stop();
+}
+
 bool ws_connected() {
     return _ws.connected();
 }
