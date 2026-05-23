@@ -1,12 +1,13 @@
 from __future__ import annotations
 import asyncio
-import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from .queue import TickerQueue
 from .dedup import DedupCache
 from .state import AggregatorState
 from .drain import ticker_drain_loop
+from .dispatch_worker import create_worker
+from .transport_client import init_dispatch_worker
 from .routes import router, init_singletons
 
 
@@ -16,14 +17,14 @@ async def lifespan(app: FastAPI):
     dedup = DedupCache()
     state = AggregatorState()
     init_singletons(queue, dedup, state)
-    transport_url = os.environ.get("TRANSPORT_ADAPTER_URL", "http://housepanel-transport-adapter:8002")
-    task = asyncio.create_task(ticker_drain_loop(queue, transport_url))
+    worker = create_worker()
+    init_dispatch_worker(worker)
+    drain_task = asyncio.create_task(ticker_drain_loop(queue))
+    worker_task = asyncio.create_task(worker.run())
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    drain_task.cancel()
+    worker_task.cancel()
+    await asyncio.gather(drain_task, worker_task, return_exceptions=True)
 
 
 app = FastAPI(title="HousePanel Aggregator", lifespan=lifespan)

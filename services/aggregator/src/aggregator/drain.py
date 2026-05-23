@@ -10,7 +10,7 @@ logger = make_logger("aggregator")
 TICKER_DRAIN_INTERVAL_SECONDS = float(os.environ.get("TICKER_DRAIN_INTERVAL_SECONDS", "1.0"))
 
 
-async def ticker_drain_loop(queue: TickerQueue, transport_url: str) -> None:
+async def ticker_drain_loop(queue: TickerQueue) -> None:
     while True:
         await asyncio.sleep(TICKER_DRAIN_INTERVAL_SECONDS)
         event = await queue.dequeue_non_expired()

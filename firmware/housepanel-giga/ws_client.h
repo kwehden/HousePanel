@@ -6,7 +6,6 @@
 void ws_init();
 bool ws_connect();
 bool ws_connected();
-void ws_force_disconnect();
 void ws_send_hello(bool post_ota);
 void ws_loop();
 
