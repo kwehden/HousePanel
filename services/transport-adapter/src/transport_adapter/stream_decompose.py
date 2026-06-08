@@ -43,7 +43,7 @@ def _sysmon_stream(p: dict) -> list[dict]:
     temp_c = float(p.get("temp_c") or 0.0)
     history = p.get("history") or []
     h_str = ",".join(str(round(v)) for v in history[-20:])
-    return [{"cmd": "SYSMON_TEMP", "t": round(temp_c, 1), "h": h_str}]
+    return [{"cmd": "SYSMON_TEMP", "t": round(temp_c, 1), "h": h_str, "w": int(p.get("window_minutes") or 0)}]
 
 
 def _calendar_stream(p: dict) -> list[dict]:

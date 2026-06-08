@@ -14,12 +14,20 @@ from shared.logging import make_logger, log_event
 
 logger = make_logger("sysmon-poller")
 
-_ARDTEMP_URL   = os.environ.get("ARDTEMP_URL",    "http://ardtemp-service.ardtemp.svc.cluster.local:8000")
+_ARDTEMP_URL    = os.environ.get("ARDTEMP_URL",    "http://ardtemp-service.ardtemp.svc.cluster.local:8000")
 _AGGREGATOR_URL = os.environ.get("AGGREGATOR_URL", "http://housepanel-aggregator:8001")
 _BOARD_ID       = os.environ.get("ARDTEMP_BOARD_ID", "r4wifi")
 _LABEL          = os.environ.get("ARDTEMP_LABEL",    "CPU Rad Intake")
-_POLL_INTERVAL  = int(os.environ.get("SYSMON_POLL_INTERVAL_SECONDS", "30"))
-_HISTORY_WINDOW = int(os.environ.get("SYSMON_HISTORY_WINDOW_SECONDS", "3600"))
+_POLL_INTERVAL  = int(os.environ.get("SYSMON_POLL_INTERVAL_SECONDS", "20"))
+_HISTORY_WINDOW = int(os.environ.get("SYSMON_HISTORY_WINDOW_SECONDS", "7200"))
+_SPARKLINE_POINTS = 20
+
+
+def _subsample(values: list[float], n: int) -> list[float]:
+    if len(values) <= n:
+        return values
+    step = (len(values) - 1) / (n - 1)
+    return [values[round(i * step)] for i in range(n)]
 
 
 async def _poll() -> None:
@@ -42,11 +50,12 @@ async def _poll() -> None:
             since = int(_time.time()) - _HISTORY_WINDOW
             hist_resp = await client.get(
                 f"{_ARDTEMP_URL}/readings",
-                params={"board_id": _BOARD_ID, "since": since, "limit": 20},
+                params={"board_id": _BOARD_ID, "since": since, "limit": 500},
             )
             history: list[float] = []
             if hist_resp.status_code == 200:
-                history = [round(float(r["t"]), 1) for r in hist_resp.json()]
+                all_readings = [round(float(r["t"]), 1) for r in hist_resp.json()]
+                history = _subsample(all_readings, _SPARKLINE_POINTS)
 
             agg_resp = await client.post(
                 f"{_AGGREGATOR_URL}/internal/events",
@@ -60,6 +69,7 @@ async def _poll() -> None:
                         "history": history,
                         "board_id": _BOARD_ID,
                         "label": _LABEL,
+                        "window_minutes": _HISTORY_WINDOW // 60,
                     },
                     "ttl_seconds": 90,
                 },

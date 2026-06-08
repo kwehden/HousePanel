@@ -69,7 +69,8 @@ void loop() {
                 Serial.println(g_last_frame.sysmon.temp_c);
                 display_update_sysmon(g_last_frame.sysmon.temp_c,
                                       g_last_frame.sysmon.history,
-                                      g_last_frame.sysmon.count);
+                                      g_last_frame.sysmon.count,
+                                      g_last_frame.sysmon.window_minutes);
                 _last_data_rx_ms = millis();
                 break;
             case CommandType::WEATHER:
