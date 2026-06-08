@@ -48,13 +48,16 @@ static lv_obj_t* _scr_doorbell = nullptr;
 static lv_obj_t* _lbl_doorbell = nullptr;
 
 // Sysmon (red row)
-static lv_obj_t*          _lbl_sysmon  = nullptr;
-static lv_obj_t*          _spark_line  = nullptr;
+static lv_obj_t*          _lbl_sysmon      = nullptr;
+static lv_obj_t*          _spark_line      = nullptr;
+static lv_obj_t*          _lbl_spark_start = nullptr;
+static lv_obj_t*          _lbl_spark_end   = nullptr;
 static lv_point_precise_t _spark_pts[20];
 
 // Sparkline dimensions (pixels within its container)
-static const int SPARK_W = 296;
-static const int SPARK_H = 56;
+static const int SPARK_W       = 296;
+static const int SPARK_H       = 42;   // sparkline draw area
+static const int SPARK_LABEL_H = 14;   // time label row above sparkline
 
 // C/F toggle and cached weather values
 static bool _show_fahrenheit = false;
@@ -398,17 +401,45 @@ void display_init() {
     lv_obj_set_style_border_width(sdiv, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sdiv, 0, LV_PART_MAIN);
 
-    // Right: sparkline container (392–700px, 308px wide × 64px tall, centred in 80px)
+    // Right: sparkline outer container — 296×56 centred in 80px at x=398
+    static const int SPARK_TOTAL_H = SPARK_H + SPARK_LABEL_H;
     lv_obj_t* spark_box = lv_obj_create(sysmon_box);
-    lv_obj_set_size(spark_box, SPARK_W, SPARK_H);
-    lv_obj_set_pos(spark_box, 398, (80 - SPARK_H) / 2);
+    lv_obj_set_size(spark_box, SPARK_W, SPARK_TOTAL_H);
+    lv_obj_set_pos(spark_box, 398, (80 - SPARK_TOTAL_H) / 2);
     lv_obj_set_style_bg_opa(spark_box, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(spark_box, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(spark_box, 0, LV_PART_MAIN);
     lv_obj_remove_flag(spark_box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(spark_box, LV_SCROLLBAR_MODE_OFF);
 
-    _spark_line = lv_line_create(spark_box);
+    // Time window labels (14px row at top of spark_box)
+    _lbl_spark_start = lv_label_create(spark_box);
+    lv_obj_set_size(_lbl_spark_start, 80, SPARK_LABEL_H);
+    lv_obj_set_pos(_lbl_spark_start, 0, 0);
+    lv_obj_set_style_text_font(_lbl_spark_start, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_color(_lbl_spark_start, lv_color_hex(0x666666), LV_PART_MAIN);
+    lv_obj_set_style_text_align(_lbl_spark_start, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    lv_label_set_text(_lbl_spark_start, "");
+
+    _lbl_spark_end = lv_label_create(spark_box);
+    lv_obj_set_size(_lbl_spark_end, 80, SPARK_LABEL_H);
+    lv_obj_set_pos(_lbl_spark_end, SPARK_W - 80, 0);
+    lv_obj_set_style_text_font(_lbl_spark_end, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_color(_lbl_spark_end, lv_color_hex(0x666666), LV_PART_MAIN);
+    lv_obj_set_style_text_align(_lbl_spark_end, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_label_set_text(_lbl_spark_end, "");
+
+    // Inner sparkline container (42px draw area below label row)
+    lv_obj_t* spark_inner = lv_obj_create(spark_box);
+    lv_obj_set_size(spark_inner, SPARK_W, SPARK_H);
+    lv_obj_set_pos(spark_inner, 0, SPARK_LABEL_H);
+    lv_obj_set_style_bg_opa(spark_inner, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(spark_inner, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(spark_inner, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(spark_inner, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(spark_inner, LV_SCROLLBAR_MODE_OFF);
+
+    _spark_line = lv_line_create(spark_inner);
     lv_obj_set_style_line_color(_spark_line, lv_color_hex(0xFF8C00), LV_PART_MAIN);
     lv_obj_set_style_line_width(_spark_line, 2, LV_PART_MAIN);
     lv_obj_set_style_line_rounded(_spark_line, true, LV_PART_MAIN);
@@ -575,12 +606,21 @@ void render_calendar_section(const char* events_text) {
     lv_label_set_text(_lbl_calendar, events_text ? events_text : "No events");
 }
 
-void display_update_sysmon(float temp_c, int16_t* history, int count) {
+void display_update_sysmon(float temp_c, int16_t* history, int count, uint16_t window_minutes) {
     if (_lbl_sysmon) {
         char buf[52];
         float f = temp_c * 9.0f / 5.0f + 32.0f;
         snprintf(buf, sizeof(buf), "CPU Rad: %.0f\xc2\xb0""C | %.0f\xc2\xb0""F", temp_c, f);
         lv_label_set_text(_lbl_sysmon, buf);
+    }
+    if (window_minutes > 0) {
+        char start_buf[12];
+        if (window_minutes >= 60 && window_minutes % 60 == 0)
+            snprintf(start_buf, sizeof(start_buf), "-%uh", (unsigned)(window_minutes / 60));
+        else
+            snprintf(start_buf, sizeof(start_buf), "-%um", (unsigned)window_minutes);
+        if (_lbl_spark_start) lv_label_set_text(_lbl_spark_start, start_buf);
+        if (_lbl_spark_end)   lv_label_set_text(_lbl_spark_end,   "now");
     }
     if (_spark_line && count > 1) {
         float mn = (float)history[0], mx = (float)history[0];

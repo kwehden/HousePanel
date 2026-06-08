@@ -64,8 +64,9 @@ bool parse_command_frame(const char* raw_json, CommandFrame& out) {
 
     if (strcmp(cmd, "SYSMON_TEMP") == 0) {
         out.type = CommandType::SYSMON_TEMP;
-        out.sysmon.temp_c = doc["t"] | 0.0f;
-        out.sysmon.count  = 0;
+        out.sysmon.temp_c       = doc["t"] | 0.0f;
+        out.sysmon.count        = 0;
+        out.sysmon.window_minutes = (uint16_t)(doc["w"] | 0);
         const char* h_str = doc["h"] | "";
         if (h_str && *h_str) {
             char buf[128];

@@ -10,6 +10,7 @@ class SysmonData:
     history: list[float]
     label: str
     timestamp: datetime
+    window_minutes: int = 0
 
 
 @dataclass
@@ -64,5 +65,6 @@ class AggregatorState:
                 "history": s.history,
                 "label": s.label,
                 "timestamp": s.timestamp.isoformat(),
+                "window_minutes": s.window_minutes,
             }
         return {"weather": weather, "calendar": calendar, "sysmon": sysmon}
