@@ -412,7 +412,7 @@ void display_init() {
     _lbl_spark_start = lv_label_create(spark_box);
     lv_obj_set_size(_lbl_spark_start, 80, SPARK_LABEL_H);
     lv_obj_set_pos(_lbl_spark_start, 0, 0);
-    lv_obj_set_style_text_font(_lbl_spark_start, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_spark_start, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_set_style_text_color(_lbl_spark_start, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_set_style_text_align(_lbl_spark_start, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     lv_label_set_text(_lbl_spark_start, "");
@@ -420,7 +420,7 @@ void display_init() {
     _lbl_spark_end = lv_label_create(spark_box);
     lv_obj_set_size(_lbl_spark_end, 80, SPARK_LABEL_H);
     lv_obj_set_pos(_lbl_spark_end, SPARK_W - 80, 0);
-    lv_obj_set_style_text_font(_lbl_spark_end, &lv_font_montserrat_12, LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_spark_end, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_set_style_text_color(_lbl_spark_end, lv_color_hex(0x666666), LV_PART_MAIN);
     lv_obj_set_style_text_align(_lbl_spark_end, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     lv_label_set_text(_lbl_spark_end, "");
