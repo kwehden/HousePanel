@@ -41,9 +41,10 @@ struct CalEventData {
 };
 
 struct SysmonData {
-    float   temp_c;
-    int16_t history[20];
-    uint8_t count;
+    float    temp_c;
+    int16_t  history[20];
+    uint8_t  count;
+    uint16_t window_minutes;
 };
 
 struct CommandFrame {

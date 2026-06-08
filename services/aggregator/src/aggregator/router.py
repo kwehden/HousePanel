@@ -78,6 +78,7 @@ async def route_event(
             history=list(event_req.payload.get("history", [])),
             label=str(event_req.payload.get("label", "Sensor")),
             timestamp=ts,
+            window_minutes=int(event_req.payload.get("window_minutes", 0)),
         )
         state.update_sysmon(s)
         await dispatch_command_to_transport(
