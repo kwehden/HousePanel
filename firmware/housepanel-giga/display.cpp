@@ -102,9 +102,8 @@ static lv_obj_t* make_weather_card(lv_obj_t* parent, int x_pos, int card_idx, in
     lv_obj_set_pos(card, x_pos, 0);
     lv_obj_set_style_pad_all(card, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(card, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_border_color(card, lv_color_hex(0x444444), LV_PART_MAIN);
-    lv_obj_set_style_border_width(card, 2, LV_PART_MAIN);
-    lv_obj_set_style_radius(card, 4, LV_PART_MAIN);
+    lv_obj_set_style_border_width(card, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(card, 0, LV_PART_MAIN);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_OFF);
 
@@ -337,8 +336,7 @@ void display_init() {
     lv_obj_set_size(clock_box, 400, 220);
     lv_obj_set_pos(clock_box, 0, 180);
     lv_obj_set_style_bg_color(clock_box, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_border_color(clock_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
-    lv_obj_set_style_border_width(clock_box, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_width(clock_box, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(clock_box, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(clock_box, 0, LV_PART_MAIN);
     lv_obj_remove_flag(clock_box, LV_OBJ_FLAG_SCROLLABLE);
@@ -358,8 +356,7 @@ void display_init() {
     lv_obj_set_size(cal_box, 400, 220);
     lv_obj_set_pos(cal_box, 400, 180);
     lv_obj_set_style_bg_color(cal_box, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_border_color(cal_box, lv_color_hex(0x1565C0), LV_PART_MAIN);
-    lv_obj_set_style_border_width(cal_box, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_width(cal_box, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(cal_box, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(cal_box, 0, LV_PART_MAIN);
     lv_obj_remove_flag(cal_box, LV_OBJ_FLAG_SCROLLABLE);
@@ -378,8 +375,7 @@ void display_init() {
     lv_obj_set_size(sysmon_box, 706, 80);
     lv_obj_set_pos(sysmon_box, 0, 400);
     lv_obj_set_style_bg_color(sysmon_box, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_border_color(sysmon_box, lv_color_hex(0xE94560), LV_PART_MAIN);
-    lv_obj_set_style_border_width(sysmon_box, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sysmon_box, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(sysmon_box, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sysmon_box, 0, LV_PART_MAIN);
     lv_obj_remove_flag(sysmon_box, LV_OBJ_FLAG_SCROLLABLE);
