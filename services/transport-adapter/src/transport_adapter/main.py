@@ -3,6 +3,7 @@ import asyncio
 import time as _time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 from fastapi import FastAPI
 from transport_adapter import state
@@ -27,12 +28,12 @@ async def _hourly_time_sync() -> None:
                 "utc_offset_min": utc_offset_min,
             })
             log_event(logger, "periodic_time_sync", utc_offset_min=utc_offset_min)
-        except Exception:
+        except asyncio.QueueFull:
             log_event(logger, "periodic_time_sync_queue_full", level="warning")
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     task = asyncio.create_task(_hourly_time_sync())
     yield
     task.cancel()
