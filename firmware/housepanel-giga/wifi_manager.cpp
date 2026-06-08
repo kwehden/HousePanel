@@ -5,6 +5,7 @@ void wifi_connect(void (*pump)()) {
     Serial.print("Connecting to WiFi");
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     while (WiFi.status() != WL_CONNECTED) {
+        mbed::Watchdog::get_instance().kick();
         if (pump) {
             for (int i = 0; i < 50; i++) { pump(); delay(10); }
         } else {
