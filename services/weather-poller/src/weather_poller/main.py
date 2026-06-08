@@ -44,18 +44,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     primary, fallback = _build_adapters()
 
+    poll_args = [primary, fallback, state, aggregator_url, logger]
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         poll_weather,
         trigger="interval",
         seconds=poll_interval,
-        args=[primary, fallback, state, aggregator_url, logger],
+        args=poll_args,
         id="poll_weather",
         replace_existing=True,
         next_run_time=datetime.now(timezone.utc),
     )
+    scheduler.add_job(
+        poll_weather,
+        trigger="cron",
+        hour=0,
+        minute=5,
+        timezone="America/Los_Angeles",
+        args=poll_args,
+        id="poll_weather_midnight",
+        replace_existing=True,
+    )
     scheduler.start()
-    app.state.poll_args = (primary, fallback, state, aggregator_url, logger)
+    app.state.poll_args = tuple(poll_args)
     log_event(
         logger,
         "scheduler_started",
