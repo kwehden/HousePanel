@@ -15,6 +15,12 @@ static unsigned long _doorbell_timeout_ms = 0;
 static unsigned long _last_data_rx_ms = 0;
 static unsigned long _last_indicator_ms = 0;
 
+// If the far end silently closes the socket, the Giga's local ws_connected()
+// can keep reporting true (stale half-open TCP) — no more data arrives, but no
+// reconnect ever gets triggered. Reuse the same staleness threshold already used
+// for the on-screen "data" indicator to force a reconnect in that case.
+static const unsigned long DATA_STALE_TIMEOUT_MS = 90000UL;
+
 static char _cal_text[512];
 static int  _cal_text_len = 0;
 
@@ -26,9 +32,11 @@ void setup() {
     ws_init();
     if (ws_connect()) {
         ws_send_hello(false);
+        _last_data_rx_ms = millis();
     }
     // RTC is seeded by the first TIME command the server sends in response to HELLO.
-    mbed::Watchdog::get_instance().start(8000);
+    // 10s gives headroom above the 3s WS handshake timeout (see ws_init()) plus normal loop overhead.
+    mbed::Watchdog::get_instance().start(10000);
 }
 
 static unsigned long _loop_count = 0;
@@ -45,9 +53,20 @@ void loop() {
     if (!wifi_status_ok()) {
         wifi_connect(display_service);
     }
+    if (ws_connected() && _last_data_rx_ms > 0 &&
+        (millis() - _last_data_rx_ms) > DATA_STALE_TIMEOUT_MS) {
+        Serial.println("ws stale (no data received) — forcing reconnect");
+        ws_force_reconnect();
+    }
     if (!ws_connected()) {
-        if (ws_connect()) {
+        mbed::Watchdog::get_instance().kick();
+        unsigned long ws_connect_start_ms = millis();
+        bool ws_ok = ws_connect();
+        Serial.print("ws_connect took ms=");
+        Serial.println(millis() - ws_connect_start_ms);
+        if (ws_ok) {
             ws_send_hello(false);
+            _last_data_rx_ms = millis();
         }
     }
     ws_loop();
@@ -66,11 +85,11 @@ void loop() {
                 break;
             case CommandType::SYSMON_TEMP:
                 Serial.print("SYSMON: t=");
-                Serial.println(g_last_frame.sysmon.temp_c);
+                Serial.print(g_last_frame.sysmon.temp_c);
+                Serial.print(" h=");
+                Serial.println(g_last_frame.sysmon.humidity_pct);
                 display_update_sysmon(g_last_frame.sysmon.temp_c,
-                                      g_last_frame.sysmon.history,
-                                      g_last_frame.sysmon.count,
-                                      g_last_frame.sysmon.window_minutes);
+                                      g_last_frame.sysmon.humidity_pct);
                 _last_data_rx_ms = millis();
                 break;
             case CommandType::WEATHER:
@@ -151,7 +170,7 @@ void loop() {
 
         bool wifi_ok = wifi_status_ok();
         bool ws_ok   = ws_connected();
-        bool data_ok = (_last_data_rx_ms > 0) && ((millis() - _last_data_rx_ms) < 90000UL);
+        bool data_ok = (_last_data_rx_ms > 0) && ((millis() - _last_data_rx_ms) < DATA_STALE_TIMEOUT_MS);
         uint32_t data_age_s = (_last_data_rx_ms > 0)
                               ? (uint32_t)((millis() - _last_data_rx_ms) / 1000)
                               : 0;
