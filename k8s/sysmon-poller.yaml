@@ -17,9 +17,17 @@ spec:
         app: housepanel-sysmon-poller
     spec:
       automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
       containers:
         - name: sysmon-poller
-          image: laminarflow:30500/housepanel/sysmon-poller:0.1.2
+          image: laminarflow:30500/housepanel/sysmon-poller:0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8005
@@ -33,11 +41,9 @@ spec:
             - name: ARDTEMP_BOARD_ID
               value: "r4wifi"
             - name: ARDTEMP_LABEL
-              value: "CPU Rad Intake"
+              value: "Filament Box"
             - name: SYSMON_POLL_INTERVAL_SECONDS
               value: "20"
-            - name: SYSMON_HISTORY_WINDOW_SECONDS
-              value: "7200"
             - name: LOG_LEVEL
               value: "INFO"
           resources:
