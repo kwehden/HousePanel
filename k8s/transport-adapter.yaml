@@ -18,9 +18,17 @@ spec:
     spec:
       serviceAccountName: housepanel-transport-adapter
       automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
       containers:
         - name: transport-adapter
-          image: laminarflow:30500/housepanel/transport-adapter:0.1.9
+          image: laminarflow:30500/housepanel/transport-adapter:0.1.11
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8002

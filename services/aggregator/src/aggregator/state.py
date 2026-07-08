@@ -7,10 +7,9 @@ from shared.models import WeatherConditions, CalendarState
 @dataclass
 class SysmonData:
     temp_c: float
-    history: list[float]
+    humidity_pct: float | None
     label: str
     timestamp: datetime
-    window_minutes: int = 0
 
 
 @dataclass
@@ -62,9 +61,8 @@ class AggregatorState:
             s = self.last_sysmon
             sysmon = {
                 "temp_c": s.temp_c,
-                "history": s.history,
+                "humidity_pct": s.humidity_pct,
                 "label": s.label,
                 "timestamp": s.timestamp.isoformat(),
-                "window_minutes": s.window_minutes,
             }
         return {"weather": weather, "calendar": calendar, "sysmon": sysmon}

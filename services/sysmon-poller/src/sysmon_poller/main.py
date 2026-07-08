@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import time as _time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -19,15 +18,6 @@ _AGGREGATOR_URL = os.environ.get("AGGREGATOR_URL", "http://housepanel-aggregator
 _BOARD_ID       = os.environ.get("ARDTEMP_BOARD_ID", "r4wifi")
 _LABEL          = os.environ.get("ARDTEMP_LABEL",    "CPU Rad Intake")
 _POLL_INTERVAL  = int(os.environ.get("SYSMON_POLL_INTERVAL_SECONDS", "20"))
-_HISTORY_WINDOW = int(os.environ.get("SYSMON_HISTORY_WINDOW_SECONDS", "7200"))
-_SPARKLINE_POINTS = 20
-
-
-def _subsample(values: list[float], n: int) -> list[float]:
-    if len(values) <= n:
-        return values
-    step = (len(values) - 1) / (n - 1)
-    return [values[round(i * step)] for i in range(n)]
 
 
 async def _poll() -> None:
@@ -46,16 +36,7 @@ async def _poll() -> None:
                 return
 
             temp_c = float(latest["t"])
-
-            since = int(_time.time()) - _HISTORY_WINDOW
-            hist_resp = await client.get(
-                f"{_ARDTEMP_URL}/readings",
-                params={"board_id": _BOARD_ID, "since": since, "limit": 500},
-            )
-            history: list[float] = []
-            if hist_resp.status_code == 200:
-                all_readings = [round(float(r["t"]), 1) for r in hist_resp.json()]
-                history = _subsample(all_readings, _SPARKLINE_POINTS)
+            humidity_pct = float(latest["h"]) if latest.get("h") is not None else None
 
             agg_resp = await client.post(
                 f"{_AGGREGATOR_URL}/internal/events",
@@ -66,10 +47,9 @@ async def _poll() -> None:
                     "priority": 0,
                     "payload": {
                         "temp_c": temp_c,
-                        "history": history,
+                        "humidity_pct": humidity_pct,
                         "board_id": _BOARD_ID,
                         "label": _LABEL,
-                        "window_minutes": _HISTORY_WINDOW // 60,
                     },
                     "ttl_seconds": 90,
                 },
@@ -78,7 +58,7 @@ async def _poll() -> None:
                 log_event(logger, "aggregator_post_failed", level="warning",
                           status=agg_resp.status_code)
                 return
-            log_event(logger, "poll_success", temp_c=temp_c, history_count=len(history))
+            log_event(logger, "poll_success", temp_c=temp_c, humidity_pct=humidity_pct)
     except Exception as exc:
         log_event(logger, "poll_error", level="warning", error=str(exc))
 

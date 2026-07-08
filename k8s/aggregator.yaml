@@ -18,9 +18,17 @@ spec:
     spec:
       serviceAccountName: housepanel-aggregator
       automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
       containers:
         - name: aggregator
-          image: laminarflow:30500/housepanel/aggregator:0.1.7
+          image: laminarflow:30500/housepanel/aggregator:0.1.8
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001

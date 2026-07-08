@@ -73,12 +73,12 @@ async def route_event(
 
     if event_req.event_type == "sysmon-update":
         from .state import SysmonData
+        humidity = event_req.payload.get("humidity_pct")
         s = SysmonData(
             temp_c=float(event_req.payload.get("temp_c", 0.0)),
-            history=list(event_req.payload.get("history", [])),
+            humidity_pct=float(humidity) if humidity is not None else None,
             label=str(event_req.payload.get("label", "Sensor")),
             timestamp=ts,
-            window_minutes=int(event_req.payload.get("window_minutes", 0)),
         )
         state.update_sysmon(s)
         await dispatch_command_to_transport(
