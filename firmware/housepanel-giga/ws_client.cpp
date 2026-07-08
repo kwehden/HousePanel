@@ -13,6 +13,11 @@ void ws_init() {
 
 bool ws_connect() {
     _ws.stop();
+    // HttpClient::stop() calls resetState(), which resets iHttpResponseTimeout back to
+    // its 30s default (ArduinoHttpClient kHttpResponseTimeout) — far longer than the 10s
+    // hardware watchdog. Re-apply the cap after every stop() so a slow/hanging WS
+    // handshake can never outlive the watchdog and reset the MCU mid-connect.
+    _ws.setHttpResponseTimeout(3000);
     int rc = _ws.begin(TRANSPORT_ADAPTER_WS_PATH);
     Serial.print("ws_connect rc=");
     Serial.println(rc);
@@ -21,6 +26,10 @@ bool ws_connect() {
 
 bool ws_connected() {
     return _ws.connected();
+}
+
+void ws_force_reconnect() {
+    _ws.stop();
 }
 
 void ws_send_hello(bool post_ota) {

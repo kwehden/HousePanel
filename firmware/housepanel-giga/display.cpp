@@ -47,17 +47,9 @@ static uint32_t _s_data_age = 0;
 static lv_obj_t* _scr_doorbell = nullptr;
 static lv_obj_t* _lbl_doorbell = nullptr;
 
-// Sysmon (red row)
-static lv_obj_t*          _lbl_sysmon      = nullptr;
-static lv_obj_t*          _spark_line      = nullptr;
-static lv_obj_t*          _lbl_spark_start = nullptr;
-static lv_obj_t*          _lbl_spark_end   = nullptr;
-static lv_point_precise_t _spark_pts[20];
-
-// Sparkline dimensions (pixels within its container)
-static const int SPARK_W       = 296;
-static const int SPARK_H       = 42;   // sparkline draw area
-static const int SPARK_LABEL_H = 14;   // time label row above sparkline
+// Sysmon (red row) — filament box temp + humidity, sized to read at a distance
+static lv_obj_t* _lbl_sysmon_temp     = nullptr;
+static lv_obj_t* _lbl_sysmon_humidity = nullptr;
 
 // C/F toggle and cached weather values
 static bool _show_fahrenheit = false;
@@ -370,7 +362,7 @@ void display_init() {
     lv_obj_set_style_text_color(_lbl_calendar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
     lv_obj_set_style_text_font(_lbl_calendar, &lv_font_montserrat_18, LV_PART_MAIN);
 
-    // --- Sysmon row: y=400, h=80, width=706 — left label | right sparkline ---
+    // --- Sysmon row: y=400, h=80, width=706 — filament box temp | humidity ---
     lv_obj_t* sysmon_box = lv_obj_create(_scr_daily);
     lv_obj_set_size(sysmon_box, 706, 80);
     lv_obj_set_pos(sysmon_box, 0, 400);
@@ -381,64 +373,45 @@ void display_init() {
     lv_obj_remove_flag(sysmon_box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(sysmon_box, LV_SCROLLBAR_MODE_OFF);
 
-    // Left: temp label (0–384px)
-    _lbl_sysmon = lv_label_create(sysmon_box);
-    lv_obj_set_size(_lbl_sysmon, 378, 30);
-    lv_obj_set_pos(_lbl_sysmon, 6, 25);
-    lv_obj_set_style_text_color(_lbl_sysmon, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(_lbl_sysmon, &lv_font_montserrat_20, LV_PART_MAIN);
-    lv_label_set_text(_lbl_sysmon, "CPU Rad: -- | --");
+    // Left half: temperature, centred
+    lv_obj_t* temp_half = lv_obj_create(sysmon_box);
+    lv_obj_set_size(temp_half, 353, 80);
+    lv_obj_set_pos(temp_half, 0, 0);
+    lv_obj_set_style_bg_opa(temp_half, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(temp_half, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(temp_half, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(temp_half, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(temp_half, LV_SCROLLBAR_MODE_OFF);
+
+    _lbl_sysmon_temp = lv_label_create(temp_half);
+    lv_obj_set_style_text_color(_lbl_sysmon_temp, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_sysmon_temp, &lv_font_montserrat_28, LV_PART_MAIN);
+    lv_label_set_text(_lbl_sysmon_temp, "--\xc2\xb0""C");
+    lv_obj_center(_lbl_sysmon_temp);
 
     // Divider
     lv_obj_t* sdiv = lv_obj_create(sysmon_box);
     lv_obj_set_size(sdiv, 1, 64);
-    lv_obj_set_pos(sdiv, 390, 8);
+    lv_obj_set_pos(sdiv, 353, 8);
     lv_obj_set_style_bg_color(sdiv, lv_color_hex(0x444444), LV_PART_MAIN);
     lv_obj_set_style_border_width(sdiv, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sdiv, 0, LV_PART_MAIN);
 
-    // Right: sparkline outer container — 296×56 centred in 80px at x=398
-    static const int SPARK_TOTAL_H = SPARK_H + SPARK_LABEL_H;
-    lv_obj_t* spark_box = lv_obj_create(sysmon_box);
-    lv_obj_set_size(spark_box, SPARK_W, SPARK_TOTAL_H);
-    lv_obj_set_pos(spark_box, 398, (80 - SPARK_TOTAL_H) / 2);
-    lv_obj_set_style_bg_opa(spark_box, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(spark_box, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(spark_box, 0, LV_PART_MAIN);
-    lv_obj_remove_flag(spark_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(spark_box, LV_SCROLLBAR_MODE_OFF);
+    // Right half: humidity, centred
+    lv_obj_t* humidity_half = lv_obj_create(sysmon_box);
+    lv_obj_set_size(humidity_half, 353, 80);
+    lv_obj_set_pos(humidity_half, 353, 0);
+    lv_obj_set_style_bg_opa(humidity_half, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(humidity_half, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(humidity_half, 0, LV_PART_MAIN);
+    lv_obj_remove_flag(humidity_half, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(humidity_half, LV_SCROLLBAR_MODE_OFF);
 
-    // Time window labels (14px row at top of spark_box)
-    _lbl_spark_start = lv_label_create(spark_box);
-    lv_obj_set_size(_lbl_spark_start, 80, SPARK_LABEL_H);
-    lv_obj_set_pos(_lbl_spark_start, 0, 0);
-    lv_obj_set_style_text_font(_lbl_spark_start, &lv_font_montserrat_14, LV_PART_MAIN);
-    lv_obj_set_style_text_color(_lbl_spark_start, lv_color_hex(0x666666), LV_PART_MAIN);
-    lv_obj_set_style_text_align(_lbl_spark_start, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
-    lv_label_set_text(_lbl_spark_start, "");
-
-    _lbl_spark_end = lv_label_create(spark_box);
-    lv_obj_set_size(_lbl_spark_end, 80, SPARK_LABEL_H);
-    lv_obj_set_pos(_lbl_spark_end, SPARK_W - 80, 0);
-    lv_obj_set_style_text_font(_lbl_spark_end, &lv_font_montserrat_14, LV_PART_MAIN);
-    lv_obj_set_style_text_color(_lbl_spark_end, lv_color_hex(0x666666), LV_PART_MAIN);
-    lv_obj_set_style_text_align(_lbl_spark_end, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    lv_label_set_text(_lbl_spark_end, "");
-
-    // Inner sparkline container (42px draw area below label row)
-    lv_obj_t* spark_inner = lv_obj_create(spark_box);
-    lv_obj_set_size(spark_inner, SPARK_W, SPARK_H);
-    lv_obj_set_pos(spark_inner, 0, SPARK_LABEL_H);
-    lv_obj_set_style_bg_opa(spark_inner, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(spark_inner, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(spark_inner, 0, LV_PART_MAIN);
-    lv_obj_remove_flag(spark_inner, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(spark_inner, LV_SCROLLBAR_MODE_OFF);
-
-    _spark_line = lv_line_create(spark_inner);
-    lv_obj_set_style_line_color(_spark_line, lv_color_hex(0xFF8C00), LV_PART_MAIN);
-    lv_obj_set_style_line_width(_spark_line, 2, LV_PART_MAIN);
-    lv_obj_set_style_line_rounded(_spark_line, true, LV_PART_MAIN);
+    _lbl_sysmon_humidity = lv_label_create(humidity_half);
+    lv_obj_set_style_text_color(_lbl_sysmon_humidity, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(_lbl_sysmon_humidity, &lv_font_montserrat_28, LV_PART_MAIN);
+    lv_label_set_text(_lbl_sysmon_humidity, "--%");
+    lv_obj_center(_lbl_sysmon_humidity);
 
     // Status panel — sits outside the red ticker border, directly in _scr_daily.
     // 94×80 at x=706, y=400 fills the remaining screen width (706+94=800).
@@ -602,37 +575,16 @@ void render_calendar_section(const char* events_text) {
     lv_label_set_text(_lbl_calendar, events_text ? events_text : "No events");
 }
 
-void display_update_sysmon(float temp_c, int16_t* history, int count, uint16_t window_minutes) {
-    if (_lbl_sysmon) {
-        char buf[52];
-        float f = temp_c * 9.0f / 5.0f + 32.0f;
-        snprintf(buf, sizeof(buf), "CPU Rad: %.0f\xc2\xb0""C | %.0f\xc2\xb0""F", temp_c, f);
-        lv_label_set_text(_lbl_sysmon, buf);
+void display_update_sysmon(float temp_c, float humidity_pct) {
+    if (_lbl_sysmon_temp) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.0f\xc2\xb0""C", temp_c);
+        lv_label_set_text(_lbl_sysmon_temp, buf);
     }
-    if (window_minutes > 0) {
-        char start_buf[12];
-        if (window_minutes >= 60 && window_minutes % 60 == 0)
-            snprintf(start_buf, sizeof(start_buf), "-%uh", (unsigned)(window_minutes / 60));
-        else
-            snprintf(start_buf, sizeof(start_buf), "-%um", (unsigned)window_minutes);
-        if (_lbl_spark_start) lv_label_set_text(_lbl_spark_start, start_buf);
-        if (_lbl_spark_end)   lv_label_set_text(_lbl_spark_end,   "now");
-    }
-    if (_spark_line && count > 1) {
-        float mn = (float)history[0], mx = (float)history[0];
-        for (int i = 1; i < count; i++) {
-            if ((float)history[i] < mn) mn = (float)history[i];
-            if ((float)history[i] > mx) mx = (float)history[i];
-        }
-        float range = mx - mn;
-        if (range < 1.0f) range = 1.0f;
-        for (int i = 0; i < count; i++) {
-            _spark_pts[i].x = (lv_value_precise_t)(i * (SPARK_W - 1) / (count - 1));
-            _spark_pts[i].y = (lv_value_precise_t)((int)(SPARK_H - 2) - (int)(((float)history[i] - mn) / range * (float)(SPARK_H - 4)));
-        }
-        lv_line_set_points(_spark_line, _spark_pts, (uint32_t)count);
-    } else if (_spark_line) {
-        lv_line_set_points(_spark_line, _spark_pts, 0);
+    if (_lbl_sysmon_humidity) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.0f%%", humidity_pct);
+        lv_label_set_text(_lbl_sysmon_humidity, buf);
     }
 }
 
