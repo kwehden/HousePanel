@@ -47,6 +47,11 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
         log_event(logger, "giga_ws_error", level="warning",
                   errors=[type(e).__name__ for e in eg.exceptions])
     finally:
-        state.giga_connected = False
-        state.active_websocket = None
+        # A newer connection may already have replaced this one (rapid client
+        # reconnects can overlap this handler's cleanup with the next accept()).
+        # Only clear state if we're still the connection of record — otherwise
+        # this stale cleanup would clobber the newer, still-live connection.
+        if state.active_websocket is websocket:
+            state.giga_connected = False
+            state.active_websocket = None
         log_event(logger, "giga_disconnected")
