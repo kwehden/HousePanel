@@ -26,7 +26,14 @@ class GoogleWeatherAdapter:
             "location.latitude": self._lat,
             "location.longitude": self._lon,
         }
-        response = self._client.get(url, params=params)
+        try:
+            response = self._client.get(url, params=params)
+        except httpx.HTTPError as exc:
+            raise WeatherAPIError(
+                provider=self.provider_name,
+                http_status=0,
+                message=f"Network error: {exc}",
+            ) from exc
         if response.status_code >= 300:
             raise WeatherAPIError(
                 provider=self.provider_name,
