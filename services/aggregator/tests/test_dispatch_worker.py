@@ -347,3 +347,50 @@ def test_full_queue_of_live_commands_still_rejects():
     assert worker._queue.qsize() == 3
     ids = {worker._queue.get_nowait().event_id for _ in range(3)}
     assert ids == {"live-0", "live-1", "live-2"}
+
+
+@pytest.mark.asyncio
+async def test_backpressure_is_logged_distinctly_from_a_server_error():
+    """503 means the transport queue is full, not that it is broken. The two
+    are indistinguishable in behaviour today — both count as circuit failures
+    and requeue — so the log event is the only thing that separates them."""
+    resp = MagicMock()
+    resp.status_code = 503
+    worker, mock_client = _make_worker(mock_post_response=resp)
+    worker.enqueue("WEATHER-UPDATE", priority=5, payload={}, event_id="bp")
+
+    with patch("aggregator.dispatch_worker.httpx.AsyncClient", return_value=mock_client), \
+         patch("aggregator.dispatch_worker.log_event") as log:
+        task = asyncio.create_task(worker.run())
+        await asyncio.sleep(0.15)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    events = [c.args[1] for c in log.call_args_list]
+    assert "command_backpressure" in events
+    assert "command_http_error" not in events
+
+
+@pytest.mark.asyncio
+async def test_server_error_is_not_logged_as_backpressure():
+    resp = MagicMock()
+    resp.status_code = 500
+    worker, mock_client = _make_worker(mock_post_response=resp)
+    worker.enqueue("WEATHER-UPDATE", priority=5, payload={}, event_id="err")
+
+    with patch("aggregator.dispatch_worker.httpx.AsyncClient", return_value=mock_client), \
+         patch("aggregator.dispatch_worker.log_event") as log:
+        task = asyncio.create_task(worker.run())
+        await asyncio.sleep(0.15)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    events = [c.args[1] for c in log.call_args_list]
+    assert "command_http_error" in events
+    assert "command_backpressure" not in events
