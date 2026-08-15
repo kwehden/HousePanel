@@ -214,3 +214,21 @@ async def test_unreachable_board_records_poll_failure_only() -> None:
     assert metrics.poll_failure_total == 1
     assert metrics.push_success_total == 0
     assert metrics.push_failure_total == 0
+
+
+@pytest.mark.asyncio
+async def test_non_200_from_board_records_a_poll_failure() -> None:
+    """Mutation testing found record_poll(False) here could flip to True
+    unnoticed — a dead board would have counted as a healthy poll."""
+    await _run(_make_client(latest_status=503))
+
+    assert metrics.poll_failure_total == 1
+    assert metrics.poll_success_total == 0
+
+
+@pytest.mark.asyncio
+async def test_error_payload_records_a_poll_failure() -> None:
+    await _run(_make_client(latest_json={"error": "no data", "t": 31.5}))
+
+    assert metrics.poll_failure_total == 1
+    assert metrics.poll_success_total == 0

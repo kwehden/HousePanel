@@ -80,3 +80,59 @@ async def test_normal_queue_full_returns_503():
         })
     assert resp.status_code == 503
     assert resp.json() == {"error": "normal queue full"}
+
+
+# ---------------------------------------------------------------------------
+# Queue-full boundary — decides when back-pressure (503) is signalled
+#
+# Added after mutation testing: `qsize() + len(items) > maxsize` could become
+# `>=` with the suite green, rejecting the command that exactly fills the queue.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_command_that_exactly_fills_the_queue_is_accepted():
+    from transport_adapter.routes import CommandRequest, post_command
+    while not state.normal_queue.empty():
+        state.normal_queue.get_nowait()
+    for _ in range(state.normal_queue.maxsize - 1):
+        state.normal_queue.put_nowait({"cmd": "FILLER"})
+
+    resp = await post_command(CommandRequest(
+        cmd="SYSMON-UPDATE", priority=0, payload={"temp_c": 20.0}, event_id="fits"))
+
+    assert resp.status_code == 202
+    assert state.normal_queue.qsize() == state.normal_queue.maxsize
+
+
+@pytest.mark.asyncio
+async def test_command_that_would_overflow_is_refused_with_503():
+    from transport_adapter.routes import CommandRequest, post_command
+    while not state.normal_queue.empty():
+        state.normal_queue.get_nowait()
+    for _ in range(state.normal_queue.maxsize):
+        state.normal_queue.put_nowait({"cmd": "FILLER"})
+
+    resp = await post_command(CommandRequest(
+        cmd="SYSMON-UPDATE", priority=0, payload={"temp_c": 20.0}, event_id="over"))
+
+    assert resp.status_code == 503
+    assert state.normal_queue.qsize() == state.normal_queue.maxsize
+
+
+@pytest.mark.asyncio
+async def test_doorbell_bypasses_the_full_normal_queue():
+    """Priority 99 uses the interrupt queue, so a full normal queue must not
+    swallow a doorbell press."""
+    from transport_adapter.routes import CommandRequest, post_command
+    while not state.normal_queue.empty():
+        state.normal_queue.get_nowait()
+    while not state.interrupt_queue.empty():
+        state.interrupt_queue.get_nowait()
+    for _ in range(state.normal_queue.maxsize):
+        state.normal_queue.put_nowait({"cmd": "FILLER"})
+
+    resp = await post_command(CommandRequest(
+        cmd="DOORBELL", priority=99, payload={}, event_id="ding"))
+
+    assert resp.status_code == 202
+    assert state.interrupt_queue.qsize() >= 1
