@@ -165,3 +165,52 @@ async def test_network_error_is_contained() -> None:
 @pytest.mark.asyncio
 async def test_healthz() -> None:
     assert await healthz() == {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Metric wiring — poll and push outcomes must be recorded separately
+# ---------------------------------------------------------------------------
+
+from sysmon_poller.main import metrics  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_metrics():
+    metrics.poll_success_total = 0
+    metrics.poll_failure_total = 0
+    metrics.push_success_total = 0
+    metrics.push_failure_total = 0
+    metrics.last_poll_success_wall = None
+    metrics.last_push_success_wall = None
+    yield
+
+
+@pytest.mark.asyncio
+async def test_successful_cycle_records_poll_and_push() -> None:
+    await _run(_make_client())
+
+    assert metrics.poll_success_total == 1
+    assert metrics.push_success_total == 1
+
+
+@pytest.mark.asyncio
+async def test_aggregator_rejection_records_push_failure_only() -> None:
+    """The board was read fine — only delivery failed, and the split matters:
+    it distinguishes a dead sensor from a dead aggregator."""
+    await _run(_make_client(agg_status=500))
+
+    assert metrics.poll_success_total == 1
+    assert metrics.push_failure_total == 1
+    assert metrics.push_success_total == 0
+
+
+@pytest.mark.asyncio
+async def test_unreachable_board_records_poll_failure_only() -> None:
+    client = _make_client()
+    client.get = AsyncMock(side_effect=OSError("connection refused"))
+
+    await _run(client)
+
+    assert metrics.poll_failure_total == 1
+    assert metrics.push_success_total == 0
+    assert metrics.push_failure_total == 0

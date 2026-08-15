@@ -27,7 +27,7 @@ spec:
                     values: ["amd64"]
       containers:
         - name: sysmon-poller
-          image: laminarflow:30500/housepanel/sysmon-poller:0.2.0
+          image: laminarflow:30500/housepanel/sysmon-poller:0.3.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8005
@@ -65,3 +65,22 @@ spec:
               port: 8005
             initialDelaySeconds: 10
             periodSeconds: 30
+---
+# Exists purely so the ServiceMonitor has a target to scrape; nothing routes
+# traffic here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: housepanel-sysmon-poller
+  namespace: housepanel
+  labels:
+    app.kubernetes.io/part-of: housepanel
+    housepanel.io/metrics: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app: housepanel-sysmon-poller
+  ports:
+    - name: http
+      port: 8005
+      targetPort: 8005

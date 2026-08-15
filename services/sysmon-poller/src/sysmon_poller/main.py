@@ -8,8 +8,10 @@ from typing import AsyncGenerator
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
+from fastapi.responses import Response
 
 from shared.logging import make_logger, log_event
+from shared.metrics import CONTENT_TYPE, SourceMetrics, render
 
 logger = make_logger("sysmon-poller")
 
@@ -19,6 +21,8 @@ _BOARD_ID       = os.environ.get("ARDTEMP_BOARD_ID", "r4wifi")
 _LABEL          = os.environ.get("ARDTEMP_LABEL",    "CPU Rad Intake")
 _POLL_INTERVAL  = int(os.environ.get("SYSMON_POLL_INTERVAL_SECONDS", "20"))
 
+metrics = SourceMetrics("sysmon", poll_interval_seconds=_POLL_INTERVAL)
+
 
 async def _poll() -> None:
     try:
@@ -27,15 +31,18 @@ async def _poll() -> None:
                 f"{_ARDTEMP_URL}/latest", params={"board_id": _BOARD_ID}
             )
             if latest_resp.status_code != 200:
+                metrics.record_poll(False)
                 log_event(logger, "poll_failed", level="warning",
                           status=latest_resp.status_code)
                 return
             latest = latest_resp.json()
             if "error" in latest:
+                metrics.record_poll(False)
                 log_event(logger, "poll_no_data", level="warning", board_id=_BOARD_ID)
                 return
 
             temp_c = float(latest["t"])
+            metrics.record_poll(True)
             humidity_pct = float(latest["h"]) if latest.get("h") is not None else None
 
             agg_resp = await client.post(
@@ -55,11 +62,14 @@ async def _poll() -> None:
                 },
             )
             if agg_resp.status_code not in (200, 202, 204):
+                metrics.record_push(False)
                 log_event(logger, "aggregator_post_failed", level="warning",
                           status=agg_resp.status_code)
                 return
+            metrics.record_push(True)
             log_event(logger, "poll_success", temp_c=temp_c, humidity_pct=humidity_pct)
     except Exception as exc:
+        metrics.record_poll(False)
         log_event(logger, "poll_error", level="warning", error=str(exc))
 
 
@@ -83,6 +93,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/metrics")
+async def metrics_endpoint() -> Response:
+    return Response(content=render(metrics.render()), media_type=CONTENT_TYPE)
 
 
 @app.get("/healthz")

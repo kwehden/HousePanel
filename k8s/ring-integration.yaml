@@ -20,7 +20,7 @@ spec:
       automountServiceAccountToken: true
       containers:
         - name: ring-integration
-          image: laminarflow:30500/housepanel/ring-integration:0.1.1
+          image: laminarflow:30500/housepanel/ring-integration:0.2.0
           imagePullPolicy: IfNotPresent
           command: ["uvicorn", "ring_integration.main:app", "--host", "0.0.0.0", "--port", "8005"]
           ports:
@@ -54,3 +54,22 @@ spec:
               port: 8005
             initialDelaySeconds: 30
             periodSeconds: 30
+---
+# Exists purely so the ServiceMonitor has a target to scrape; nothing routes
+# traffic here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: housepanel-ring-integration
+  namespace: housepanel
+  labels:
+    app.kubernetes.io/part-of: housepanel
+    housepanel.io/metrics: "true"
+spec:
+  type: ClusterIP
+  selector:
+    app: housepanel-ring-integration
+  ports:
+    - name: http
+      port: 8005
+      targetPort: 8005

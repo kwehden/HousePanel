@@ -11,7 +11,11 @@ import httpx
 
 from shared.models import WeatherConditions
 from shared.logging import log_event
+from shared.metrics import SourceMetrics
 from weather_poller.adapter import WeatherAdapter, WeatherAPIError
+
+# Interval is overwritten from config at startup; the default matches main.py.
+metrics = SourceMetrics("weather", poll_interval_seconds=900)
 
 
 @dataclass
@@ -47,7 +51,9 @@ async def push_weather_update(
                 f"{aggregator_url}/internal/events", json=body
             )
             response.raise_for_status()
+        metrics.record_push(True)
     except Exception as exc:
+        metrics.record_push(False)
         log_event(
             logger,
             "push_weather_update_failed",
@@ -82,6 +88,7 @@ async def poll_weather(
         try:
             weather = await asyncio.to_thread(fallback.fetch_current)
         except WeatherAPIError as fb_exc:
+            metrics.record_poll(False)
             log_event(
                 logger,
                 "poll_error",
@@ -93,6 +100,7 @@ async def poll_weather(
             return
 
     if weather is not None:
+        metrics.record_poll(True)
         state.last_weather = weather
         state.last_poll_timestamp = datetime.now(timezone.utc)
         state.last_provider = weather.provider

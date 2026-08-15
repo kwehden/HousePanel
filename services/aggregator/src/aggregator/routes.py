@@ -137,18 +137,30 @@ async def internal_refresh() -> JSONResponse:
     weather_url = os.environ.get("WEATHER_POLLER_URL", "http://housepanel-weather-poller:8004")
     calendar_url = os.environ.get("CALENDAR_POLLER_URL", "http://housepanel-calendar-poller:8003")
 
-    async def _ping(url: str) -> None:
+    async def _ping(url: str) -> bool:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.post(f"{url}/internal/poll-now")
             if resp.status_code not in (200, 202):
                 log_event(logger, "refresh_ping_rejected", level="warning", url=url, status=resp.status_code)
+                return False
+            return True
         except Exception as exc:
             log_event(logger, "refresh_ping_failed", level="warning", url=url, error=str(exc))
+            return False
 
-    await asyncio.gather(_ping(weather_url), _ping(calendar_url))
-    log_event(logger, "pollers_refreshed")
-    return JSONResponse(status_code=202, content={"accepted": True})
+    results = await asyncio.gather(_ping(weather_url), _ping(calendar_url))
+    refreshed = sum(results)
+    # Report what actually happened: logging an unconditional success hid a
+    # calendar poller that had been unreachable since deployment.
+    log_event(
+        logger,
+        "pollers_refreshed" if refreshed == len(results) else "pollers_refreshed_partial",
+        level="info" if refreshed == len(results) else "warning",
+        refreshed=refreshed,
+        attempted=len(results),
+    )
+    return JSONResponse(status_code=202, content={"accepted": True, "refreshed": refreshed})
 
 
 @router.get("/healthz")

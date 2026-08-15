@@ -11,9 +11,13 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from shared.logging import log_event
+from shared.metrics import SourceMetrics
 from shared.models import CalendarEvent
 
 from calendar_poller.calendar_client import CalendarAPIError, GoogleCalendarClient
+
+# Interval is overwritten from config at startup; default matches main.py.
+metrics = SourceMetrics("calendar", poll_interval_seconds=300)
 
 
 @dataclass
@@ -39,7 +43,9 @@ async def push_calendar_update(
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(f"{aggregator_url}/internal/events", json=body)
             resp.raise_for_status()
+        metrics.record_push(True)
     except Exception as exc:
+        metrics.record_push(False)
         log_event(logger, "push_calendar_update_error", level="error", error=str(exc))
 
 
@@ -58,6 +64,7 @@ async def poll_google_calendar(
     try:
         events = await asyncio.to_thread(client.fetch_events, time_min, time_max)
     except CalendarAPIError as exc:
+        metrics.record_poll(False)
         log_event(
             logger,
             "poll_error",
@@ -67,6 +74,7 @@ async def poll_google_calendar(
         )
         return
     duration_ms = int((time.monotonic() - start_mono) * 1000)
+    metrics.record_poll(True)
     state.last_events = events
     state.last_poll_timestamp = datetime.now(timezone.utc)
     state.last_poll_event_count = len(events)

@@ -20,7 +20,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: webhook-receiver
-          image: laminarflow:30500/housepanel/webhook-receiver:0.1.1
+          image: laminarflow:30500/housepanel/webhook-receiver:0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
@@ -61,11 +61,13 @@ metadata:
   namespace: housepanel
   labels:
     app.kubernetes.io/part-of: housepanel
+    housepanel.io/metrics: "true"
 spec:
   type: NodePort
   selector:
     app: housepanel-webhook-receiver
   ports:
-    - port: 8000
+    - name: http
+      port: 8000
       targetPort: 8000
       nodePort: 30800

@@ -28,7 +28,7 @@ spec:
                     values: ["amd64"]
       containers:
         - name: aggregator
-          image: laminarflow:30500/housepanel/aggregator:0.1.9
+          image: laminarflow:30500/housepanel/aggregator:0.1.10
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001

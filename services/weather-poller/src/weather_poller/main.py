@@ -9,7 +9,11 @@ from typing import AsyncGenerator
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 
+from fastapi.responses import Response
+
 from shared.logging import make_logger, log_event
+from shared.metrics import CONTENT_TYPE, render
+from weather_poller.poller import metrics as source_metrics
 from weather_poller.adapter import WeatherAdapter
 from weather_poller.adapters.google import GoogleWeatherAdapter
 from weather_poller.adapters.openweathermap import OpenWeatherMapAdapter
@@ -43,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     poll_interval = int(os.environ.get("WEATHER_POLL_INTERVAL_SECONDS", "900"))
 
     primary, fallback = _build_adapters()
+    source_metrics.poll_interval_seconds = poll_interval
 
     poll_args = [primary, fallback, state, aggregator_url, logger]
     scheduler = AsyncIOScheduler()
@@ -89,6 +94,11 @@ async def poll_now() -> dict:
     primary, fallback, poller_state, aggregator_url, _logger = app.state.poll_args
     asyncio.create_task(poll_weather(primary, fallback, poller_state, aggregator_url, _logger))
     return {"accepted": True}
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    return Response(content=render(source_metrics.render()), media_type=CONTENT_TYPE)
 
 
 @app.get("/healthz")
