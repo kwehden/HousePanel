@@ -1,5 +1,7 @@
 from __future__ import annotations
+import json
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from aggregator.dispatch_worker import DispatchWorker
 from aggregator.queue import TickerQueue
 from aggregator.dedup import DedupCache
@@ -100,3 +102,75 @@ async def test_metrics_counts_outcomes():
     assert 'housepanel_dispatch_commands_total{outcome="failed"} 2' in body
     assert 'housepanel_dispatch_commands_total{outcome="expired"} 5' in body
     assert 'housepanel_dispatch_commands_total{outcome="rejected"} 1' in body
+
+
+# ---------------------------------------------------------------------------
+# /internal/refresh — must report partial failure, not blanket success
+# ---------------------------------------------------------------------------
+
+def _ping_client(status_by_url: dict[str, int | Exception]):
+    """AsyncClient double whose POST outcome depends on the target URL."""
+    def _post(url, *a, **kw):
+        for fragment, outcome in status_by_url.items():
+            if fragment in url:
+                if isinstance(outcome, Exception):
+                    raise outcome
+                resp = MagicMock()
+                resp.status_code = outcome
+                return resp
+        raise AssertionError(f"unexpected url {url}")
+
+    client = AsyncMock()
+    client.post = AsyncMock(side_effect=_post)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    return client
+
+
+@pytest.mark.asyncio
+async def test_refresh_reports_all_pollers_refreshed():
+    from aggregator.routes import internal_refresh
+    client = _ping_client({"weather": 202, "calendar": 202})
+
+    with patch("aggregator.routes.httpx.AsyncClient", return_value=client), \
+         patch("aggregator.routes.log_event") as log:
+        resp = await internal_refresh()
+
+    assert json.loads(resp.body)["refreshed"] == 2
+    assert "pollers_refreshed" in [c.args[1] for c in log.call_args_list]
+
+
+@pytest.mark.asyncio
+async def test_unreachable_poller_is_not_reported_as_success():
+    """The calendar Service was absent for weeks; an unconditional success log
+    meant every on-connect refresh looked healthy while calendar never ran."""
+    from aggregator.routes import internal_refresh
+    client = _ping_client({
+        "weather": 202,
+        "calendar": OSError("Name or service not known"),
+    })
+
+    with patch("aggregator.routes.httpx.AsyncClient", return_value=client), \
+         patch("aggregator.routes.log_event") as log:
+        resp = await internal_refresh()
+
+    events = [c.args[1] for c in log.call_args_list]
+    assert json.loads(resp.body)["refreshed"] == 1
+    assert "pollers_refreshed_partial" in events
+    assert "pollers_refreshed" not in events
+    assert "refresh_ping_failed" in events
+
+
+@pytest.mark.asyncio
+async def test_rejected_ping_counts_as_a_failure():
+    from aggregator.routes import internal_refresh
+    client = _ping_client({"weather": 202, "calendar": 500})
+
+    with patch("aggregator.routes.httpx.AsyncClient", return_value=client), \
+         patch("aggregator.routes.log_event") as log:
+        resp = await internal_refresh()
+
+    events = [c.args[1] for c in log.call_args_list]
+    assert json.loads(resp.body)["refreshed"] == 1
+    assert "refresh_ping_rejected" in events
+    assert "pollers_refreshed" not in events

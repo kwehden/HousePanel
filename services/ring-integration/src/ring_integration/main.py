@@ -6,14 +6,20 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI
+from fastapi.responses import Response
 
 from shared.logging import make_logger, log_event
+from shared.metrics import CONTENT_TYPE, Metric, SourceMetrics, render
 
 from .client import init_ring_client, subscribe_to_doorbell_events
 from .normalizer import normalize_ring_event
 from .token_manager import make_token_updated_callback
 
 logger = make_logger("ring-integration")
+
+# No poll interval: doorbell events are event-driven, so a quiet doorbell is
+# normal. Connection loss is the failure worth alerting on, not silence.
+metrics = SourceMetrics("ring")
 
 # ---------------------------------------------------------------------------
 # Runtime state (populated during lifespan startup)
@@ -40,7 +46,9 @@ async def forward_to_aggregator(event_data: dict) -> None:
                 "event_forwarded",
                 event_id=event_data.get("payload", {}).get("event_id"),
             )
+        metrics.record_push(True)
     except Exception as exc:  # noqa: BLE001
+        metrics.record_push(False)
         log_event(
             logger,
             "event_forward_failed",
@@ -97,6 +105,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="HousePanel Ring Integration", lifespan=lifespan)
+
+
+@app.get("/metrics")
+async def metrics_endpoint() -> Response:
+    out = metrics.render()
+    out.append(Metric(
+        "housepanel_ring_connected",
+        "1 when the Ring event listener is subscribed.",
+        "gauge",
+        1 if _ring_connected else 0,
+    ))
+    return Response(content=render(out), media_type=CONTENT_TYPE)
 
 
 @app.get("/healthz")

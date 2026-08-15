@@ -79,6 +79,63 @@ spec:
               connected. It has been absent for over 15 minutes, which usually
               means a firmware hang or a WiFi drop.
 
+        # Self-tuning per source: the rule reads each service's own declared
+        # interval rather than hard-coding a threshold, so weather (900s) and
+        # sysmon (20s) are both judged against what they actually promise.
+        # Event-driven sources declare no interval and are skipped entirely —
+        # a quiet doorbell is not a fault.
+        - alert: HousePanelSourceStale
+          expr: |
+            (time() - housepanel_source_last_push_success_timestamp_seconds)
+              > (housepanel_source_poll_interval_seconds * 3)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.service }} has not delivered to the aggregator"
+            description: >-
+              {{ $labels.service }} last pushed {{ $value | humanizeDuration }}
+              ago, over three times its poll interval. That content is stale on
+              the panel even though the panel link itself is healthy.
+
+        # Delivery, not fetching: a source can read its upstream API perfectly
+        # and still fail every push, which looks entirely healthy in its logs.
+        - alert: HousePanelSourceNeverDelivered
+          expr: |
+            housepanel_source_poll_interval_seconds
+              unless on(service) housepanel_source_last_push_success_timestamp_seconds
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.service }} has never delivered since starting"
+            description: >-
+              {{ $labels.service }} has been up for 30 minutes without a single
+              accepted push. Its content has never appeared on the panel.
+
+        - alert: HousePanelSourcePushFailing
+          expr: rate(housepanel_source_push_total{outcome="failure"}[10m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.service }} pushes to the aggregator are failing"
+            description: >-
+              Pushes from {{ $labels.service }} have been failing continuously
+              for 15 minutes.
+
+        - alert: HousePanelRingDisconnected
+          expr: housepanel_ring_connected == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Ring event listener is not subscribed
+            description: >-
+              ring-integration is not subscribed to doorbell events, so presses
+              will not reach the panel. Silence here is indistinguishable from a
+              quiet doorbell, which is why the connection is alerted instead.
+
         - alert: HousePanelMetricsMissing
           expr: |
             absent(housepanel_panel_connected)

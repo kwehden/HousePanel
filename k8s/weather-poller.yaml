@@ -32,7 +32,7 @@ spec:
             secretName: google-adc
       containers:
         - name: weather-poller
-          image: laminarflow:30500/housepanel/weather-poller:0.1.9
+          image: laminarflow:30500/housepanel/weather-poller:0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8004
@@ -83,10 +83,12 @@ metadata:
   namespace: housepanel
   labels:
     app.kubernetes.io/part-of: housepanel
+    housepanel.io/metrics: "true"
 spec:
   type: ClusterIP
   selector:
     app: housepanel-weather-poller
   ports:
-    - port: 8004
+    - name: http
+      port: 8004
       targetPort: 8004
