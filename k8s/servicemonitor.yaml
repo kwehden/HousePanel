@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: housepanel
+  namespace: housepanel
+  labels:
+    app.kubernetes.io/part-of: housepanel
+spec:
+  # Opt-in: only Services labelled housepanel.io/metrics expose /metrics.
+  # Selecting the whole part-of set would scrape services that serve no
+  # metrics and fill Prometheus with failing targets.
+  selector:
+    matchLabels:
+      housepanel.io/metrics: "true"
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
