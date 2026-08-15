@@ -108,6 +108,12 @@ kubectl apply -f k8s/serviceaccounts.yaml
 kubectl apply -f k8s/
 ```
 
+`kubectl apply -f k8s/` is safe to re-run: it applies workloads only. Secret
+templates live in `k8s/templates/` as `.example` files and are deliberately
+outside that path — they hold placeholder values, and applying them would
+overwrite live credentials with `<REPLACE_WITH_...>` strings. Create secrets
+with the `kubectl create secret` commands above, never by applying a template.
+
 #### Container images
 
 Images are pulled from a private registry. Build and push each service:
