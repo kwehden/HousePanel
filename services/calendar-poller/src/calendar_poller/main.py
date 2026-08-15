@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -34,6 +35,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "interval",
         seconds=POLL_INTERVAL_SECONDS,
         args=[calendar_client, state, AGGREGATOR_URL, logger],
+        id="poll_calendar",
+        replace_existing=True,
+        # Poll immediately on startup. Without this the first run waits a full
+        # interval, leaving the panel with no calendar for 5 minutes after
+        # every restart. weather-poller and sysmon-poller both do this.
+        next_run_time=datetime.now(timezone.utc),
     )
     scheduler.start()
     app.state.poller_state = state
