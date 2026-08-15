@@ -1,0 +1,93 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: housepanel
+  namespace: housepanel
+  labels:
+    app.kubernetes.io/part-of: housepanel
+spec:
+  groups:
+    - name: housepanel-delivery
+      rules:
+        # The functional probe.  Pod liveness and /healthz were both green
+        # throughout the 2026-07 outage; only end-to-end delivery was broken.
+        # Gated on panel_connected so a powered-off panel is quiet, not noisy.
+        - alert: HousePanelNotReceivingUpdates
+          expr: |
+            (time() - housepanel_dispatch_last_success_timestamp_seconds > 300)
+            and on() (housepanel_panel_connected == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Panel is connected but has received no updates for over 5 minutes
+            description: >-
+              The panel holds an open WebSocket but the aggregator has not
+              delivered a command in {{ $value | humanizeDuration }}. The
+              display is showing stale data. Check the dispatch circuit state
+              and queue depth on the aggregator.
+
+        # Direct regression canary for the HALF_OPEN wedge fixed in #17: the
+        # breaker should only ever pass through half_open momentarily.
+        - alert: HousePanelDispatchCircuitStuck
+          expr: housepanel_dispatch_circuit_state{state="half_open"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Dispatch circuit stuck half-open
+            description: >-
+              The circuit breaker has been half-open for over 5 minutes. A probe
+              slot is being consumed without an outcome being recorded, which
+              previously required a pod restart to clear.
+
+        - alert: HousePanelDispatchCircuitOpen
+          expr: |
+            housepanel_dispatch_circuit_state{state="open"} == 1
+            and on() (housepanel_panel_connected == 1)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Dispatch circuit open while a panel is connected
+            description: >-
+              Delivery to the transport adapter has been failing for over 10
+              minutes while a panel is attached.
+
+        - alert: HousePanelDispatchQueueSaturated
+          expr: |
+            housepanel_dispatch_queue_depth
+              / housepanel_dispatch_queue_max > 0.9
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Dispatch queue over 90% full
+            description: >-
+              The dispatch queue has been near capacity for 10 minutes; fresh
+              commands are at risk of being rejected.
+
+        - alert: HousePanelPanelDisconnected
+          expr: housepanel_panel_connected == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: No panel connected to the transport adapter
+            description: >-
+              The panel runs on permanent power and is expected to stay
+              connected. It has been absent for over 15 minutes, which usually
+              means a firmware hang or a WiFi drop.
+
+        - alert: HousePanelMetricsMissing
+          expr: |
+            absent(housepanel_panel_connected)
+            or absent(housepanel_dispatch_queue_depth)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: HousePanel metrics are not being scraped
+            description: >-
+              Prometheus has no HousePanel metrics, so every other alert here is
+              silently unable to fire. Check the ServiceMonitor and the pods.

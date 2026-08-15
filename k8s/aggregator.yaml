@@ -28,7 +28,7 @@ spec:
                     values: ["amd64"]
       containers:
         - name: aggregator
-          image: laminarflow:30500/housepanel/aggregator:0.1.8
+          image: laminarflow:30500/housepanel/aggregator:0.1.9
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8001
@@ -82,10 +82,12 @@ metadata:
   namespace: housepanel
   labels:
     app.kubernetes.io/part-of: housepanel
+    housepanel.io/metrics: "true"
 spec:
   type: ClusterIP
   selector:
     app: housepanel-aggregator
   ports:
-    - port: 8001
+    - name: http
+      port: 8001
       targetPort: 8001

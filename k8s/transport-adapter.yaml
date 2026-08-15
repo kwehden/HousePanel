@@ -28,7 +28,7 @@ spec:
                     values: ["amd64"]
       containers:
         - name: transport-adapter
-          image: laminarflow:30500/housepanel/transport-adapter:0.1.11
+          image: laminarflow:30500/housepanel/transport-adapter:0.1.12
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8002
@@ -66,6 +66,7 @@ metadata:
   namespace: housepanel
   labels:
     app.kubernetes.io/part-of: housepanel
+    housepanel.io/metrics: "true"
 spec:
   type: NodePort
   selector:

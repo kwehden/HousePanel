@@ -17,6 +17,7 @@ async def ws_write_loop(websocket: WebSocket) -> None:
             pass
         else:
             await websocket.send_text(json.dumps(command))
+            state.record_frame_sent()
             log_event(logger, "command_sent",
                       cmd=command.get("cmd"),
                       message_id=command.get("message_id"))
@@ -36,6 +37,7 @@ async def ws_write_loop(websocket: WebSocket) -> None:
             continue
 
         await websocket.send_text(json.dumps(command))
+        state.record_frame_sent()
         log_event(logger, "command_sent",
                   cmd=command.get("cmd"),
                   message_id=command.get("message_id"))

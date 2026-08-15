@@ -3,9 +3,10 @@ import asyncio
 import os
 import httpx
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from shared.models import InternalEventRequest
 from shared.logging import make_logger, log_event
+from shared.metrics import CONTENT_TYPE, Metric, render
 from .queue import TickerQueue
 from .dedup import DedupCache
 from .state import AggregatorState
@@ -63,6 +64,72 @@ async def internal_health() -> dict:
         "dispatch_circuit": worker.circuit_state if worker else None,
         "status": "ok",
     }
+
+
+@router.get("/metrics")
+async def metrics() -> Response:
+    """Prometheus scrape target.
+
+    The functional signal is dispatch_last_success_timestamp_seconds: paired
+    with the transport-adapter's panel_connected gauge it asserts that panel
+    updates are actually being delivered, which pod liveness cannot.
+    """
+    snapshot = await _queue.snapshot()
+    worker = get_dispatch_worker()
+    out: list[Metric] = [
+        Metric(
+            "housepanel_ticker_queue_depth",
+            "Ticker events awaiting display.",
+            "gauge",
+            len(snapshot),
+        ),
+    ]
+
+    if worker is not None:
+        out.append(Metric(
+            "housepanel_dispatch_queue_depth",
+            "Commands queued for delivery to the panel.",
+            "gauge",
+            worker.queue_depth,
+        ))
+        out.append(Metric(
+            "housepanel_dispatch_queue_max",
+            "Capacity of the dispatch queue.",
+            "gauge",
+            worker.queue_max,
+        ))
+        for state in ("closed", "half_open", "open"):
+            out.append(Metric(
+                "housepanel_dispatch_circuit_state",
+                "Dispatch circuit breaker state, 1 for the active state.",
+                "gauge",
+                1 if worker.circuit_state == state else 0,
+                {"state": state},
+            ))
+        for outcome, total in (
+            ("dispatched", worker.dispatched_total),
+            ("failed", worker.failed_total),
+            ("expired", worker.expired_total),
+            ("rejected", worker.rejected_total),
+        ):
+            out.append(Metric(
+                "housepanel_dispatch_commands_total",
+                "Commands by delivery outcome.",
+                "counter",
+                total,
+                {"outcome": outcome},
+            ))
+        if worker.last_success_wall is not None:
+            # Absent rather than 0 when nothing has ever been delivered, so the
+            # staleness alert cannot fire on a cold start.
+            out.append(Metric(
+                "housepanel_dispatch_last_success_timestamp_seconds",
+                "Unix time of the last command delivered to the transport adapter.",
+                "gauge",
+                worker.last_success_wall,
+            ))
+
+    return Response(content=render(out), media_type=CONTENT_TYPE)
 
 
 @router.post("/internal/refresh", status_code=202)

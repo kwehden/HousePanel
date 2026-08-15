@@ -103,6 +103,14 @@ class DispatchWorker:
         self._queue: asyncio.PriorityQueue[_Command] = asyncio.PriorityQueue(maxsize=maxsize)
         self._circuit = CircuitBreaker()
         self._seq: itertools.count = itertools.count()
+        self.dispatched_total = 0
+        self.failed_total = 0
+        self.expired_total = 0
+        self.rejected_total = 0
+        # Wall-clock (not monotonic) so Prometheus can compare it against time().
+        # None until the first successful dispatch — never delivered and
+        # stopped delivering are different states and must not be conflated.
+        self.last_success_wall: float | None = None
 
     # -- public API ----------------------------------------------------------
 
@@ -132,6 +140,7 @@ class DispatchWorker:
         try:
             self._queue.put_nowait(item)
         except asyncio.QueueFull:
+            self.rejected_total += 1
             log_event(logger, "dispatch_queue_full", level="warning", cmd=cmd, event_id=event_id)
 
     def _purge_expired(self) -> int:
@@ -146,6 +155,7 @@ class DispatchWorker:
                 break
             if now > queued.expires_at:
                 dropped += 1
+                self.expired_total += 1
             else:
                 kept.append(queued)
         for queued in kept:
@@ -155,6 +165,10 @@ class DispatchWorker:
     @property
     def queue_depth(self) -> int:
         return self._queue.qsize()
+
+    @property
+    def queue_max(self) -> int:
+        return self._queue.maxsize
 
     @property
     def circuit_state(self) -> str:
@@ -185,6 +199,7 @@ class DispatchWorker:
         # check so a queue full of stale commands still drains while the
         # circuit is open, instead of staying wedged at maxsize.
         if now > item.expires_at:
+            self.expired_total += 1
             log_event(
                 logger, "command_expired",
                 cmd=item.cmd, event_id=item.event_id, attempts=item.attempts,
@@ -229,6 +244,8 @@ class DispatchWorker:
 
             if resp.status_code in (200, 202, 204):
                 self._circuit.record_success()
+                self.dispatched_total += 1
+                self.last_success_wall = time.time()
                 log_event(logger, "command_dispatched", cmd=item.cmd, event_id=item.event_id)
                 return
 
@@ -245,6 +262,7 @@ class DispatchWorker:
                     status=resp.status_code,
                 )
 
+            self.failed_total += 1
             self._circuit.record_failure()
 
         except (httpx.TransportError, httpx.TimeoutException) as exc:
@@ -252,6 +270,7 @@ class DispatchWorker:
                 logger, "command_network_error",
                 level="warning", cmd=item.cmd, event_id=item.event_id, error=str(exc),
             )
+            self.failed_total += 1
             self._circuit.record_failure()
 
         except Exception as exc:  # noqa: BLE001
@@ -262,6 +281,7 @@ class DispatchWorker:
                 level="error", cmd=item.cmd, event_id=item.event_id,
                 error=str(exc), error_type=type(exc).__name__,
             )
+            self.failed_total += 1
             self._circuit.record_failure()
 
         self._requeue_with_backoff(item)
