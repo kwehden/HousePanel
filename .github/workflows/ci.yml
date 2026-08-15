@@ -16,6 +16,7 @@ jobs:
           - calendar-poller
           - ring-integration
           - shared
+          - sysmon-poller
           - transport-adapter
           - weather-poller
           - webhook-receiver

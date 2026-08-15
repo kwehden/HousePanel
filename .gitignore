@@ -26,6 +26,9 @@ firmware/housepanel-giga/secrets.h
 .task-lease.regex
 .task-budget.json
 
+# Agent memory scratch — canonical copies live in ~/.claude, not the repo
+memory/
+
 # Editor / OS
 .DS_Store
 *.swp
