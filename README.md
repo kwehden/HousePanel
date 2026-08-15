@@ -138,6 +138,26 @@ pip install -e ../shared -e .[dev]
 pytest
 ```
 
+### Mutation testing
+
+A green suite proves the tests ran, not that they assert anything.
+`tools/mutate.py` breaks one line of source at a time and re-runs that
+service's tests; if they still pass, nothing was checking that behaviour.
+
+```sh
+python tools/mutate.py                    # every service
+python tools/mutate.py weather-poller --cap 40
+```
+
+It found ten real gaps on its first run, including a `stream_decompose` change
+that zeroes every temperature on the panel with the whole suite green. Worth a
+pass after adding tests to a service.
+
+Not every survivor is a gap — some are *equivalent mutants* that cannot change
+behaviour. Read each before writing a test for it. The tool edits files in
+place and restores them, and refuses to start if the target sources have
+uncommitted changes so an interrupted run stays recoverable.
+
 ## Security notes
 
 - `firmware/housepanel-giga/secrets.h` is git-ignored and never committed.
