@@ -10,6 +10,7 @@ from .queue import TickerQueue
 from .dedup import DedupCache
 from .state import AggregatorState
 from .router import route_event
+from .transport_client import get_dispatch_worker
 
 router = APIRouter()
 logger = make_logger("aggregator")
@@ -52,7 +53,16 @@ async def internal_state() -> dict:
 @router.get("/internal/health")
 async def internal_health() -> dict:
     snapshot = await _queue.snapshot()
-    return {"queue_depth": len(snapshot), "status": "ok"}
+    # queue_depth is the ticker queue.  The dispatch queue is the one that
+    # actually carries panel updates, so report it too — an outage that jams
+    # dispatch leaves the ticker queue at 0 and is otherwise invisible here.
+    worker = get_dispatch_worker()
+    return {
+        "queue_depth": len(snapshot),
+        "dispatch_queue_depth": worker.queue_depth if worker else None,
+        "dispatch_circuit": worker.circuit_state if worker else None,
+        "status": "ok",
+    }
 
 
 @router.post("/internal/refresh", status_code=202)

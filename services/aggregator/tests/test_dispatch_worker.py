@@ -240,3 +240,110 @@ async def test_circuit_open_pauses_drain():
 
     mock_client.post.assert_not_called()
     assert worker._queue.qsize() == 1  # item still waiting
+
+
+# ---------------------------------------------------------------------------
+# Regression: HALF_OPEN probe slot must not be consumed without a dispatch
+#
+# A GIGA hang fills the dispatch queue and opens the circuit.  If the outage
+# outlasts the commands' TTL, the worker's next probe pops an expired command
+# and drops it — consuming the probe slot without ever recording an outcome.
+# HALF_OPEN had no other exit, so the breaker stayed wedged and the panel got
+# no updates until the pod was restarted.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_expired_command_does_not_wedge_circuit():
+    """The probe that drops an expired command must not strand the breaker."""
+    worker, mock_client = _make_worker()
+    worker._circuit._failure_threshold = 1
+    worker._circuit._reset_timeout = 30.0
+    worker._circuit.record_failure()
+    worker._circuit._opened_at -= 31.0  # probe is due
+
+    # Queue holds only stale commands, as after a multi-hour outage.
+    worker.enqueue("SYSMON-UPDATE", priority=0, payload={}, event_id="stale")
+    stale = worker._queue.get_nowait()
+    stale.expires_at = time.monotonic() - 1.0
+    worker._queue.put_nowait(stale)
+
+    with patch("aggregator.dispatch_worker.httpx.AsyncClient", return_value=mock_client):
+        task = asyncio.create_task(worker.run())
+        await asyncio.sleep(0.15)
+        # The GIGA is healthy again — a fresh update must get through.
+        worker.enqueue("WEATHER-UPDATE", priority=5, payload={}, event_id="fresh")
+        await asyncio.sleep(0.2)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert mock_client.post.await_count == 1
+    assert worker._circuit.state == "closed"
+    assert worker._queue.qsize() == 0
+
+
+def test_half_open_reclaims_an_unused_probe_slot():
+    """A probe granted but never resolved is re-granted after reset_timeout."""
+    cb = CircuitBreaker(failure_threshold=1, reset_timeout=30.0)
+    cb.record_failure()
+    cb._opened_at -= 31.0
+    assert cb.allow_request() is True
+    assert cb.state == "half_open"
+    assert cb.allow_request() is False  # probe outstanding
+
+    cb._probe_granted_at -= 31.0  # outcome never arrived
+    assert cb.allow_request() is True
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_records_failure_and_keeps_worker_alive():
+    """A non-httpx error must resolve the probe rather than escape the loop."""
+    worker, mock_client = _make_worker()
+    mock_client.post = AsyncMock(side_effect=ValueError("unserialisable payload"))
+    worker.enqueue("WEATHER-UPDATE", priority=5, payload={}, event_id="boom")
+
+    with patch("aggregator.dispatch_worker.httpx.AsyncClient", return_value=mock_client):
+        task = asyncio.create_task(worker.run())
+        await asyncio.sleep(0.15)
+        still_running = not task.done()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    assert still_running
+    assert worker._circuit._failures >= 1
+
+
+# ---------------------------------------------------------------------------
+# Queue-full policy: reclaim stale commands rather than reject fresh ones
+# ---------------------------------------------------------------------------
+
+def test_full_queue_purges_expired_to_admit_fresh_command():
+    worker = DispatchWorker(transport_url="http://test-transport:8002", maxsize=5)
+    for i in range(5):
+        worker.enqueue("SYSMON-UPDATE", priority=0, payload={}, event_id=f"stale-{i}")
+    for item in list(worker._queue._queue):
+        item.expires_at = time.monotonic() - 1.0
+    assert worker._queue.qsize() == 5
+
+    worker.enqueue("DOORBELL", priority=99, payload={}, event_id="fresh")
+
+    assert worker._queue.qsize() == 1
+    assert worker._queue.get_nowait().event_id == "fresh"
+
+
+def test_full_queue_of_live_commands_still_rejects():
+    """Live commands are never evicted — only past-TTL ones are reclaimed."""
+    worker = DispatchWorker(transport_url="http://test-transport:8002", maxsize=3)
+    for i in range(3):
+        worker.enqueue("DOORBELL", priority=99, payload={}, event_id=f"live-{i}")
+
+    worker.enqueue("WEATHER-UPDATE", priority=5, payload={}, event_id="rejected")
+
+    assert worker._queue.qsize() == 3
+    ids = {worker._queue.get_nowait().event_id for _ in range(3)}
+    assert ids == {"live-0", "live-1", "live-2"}

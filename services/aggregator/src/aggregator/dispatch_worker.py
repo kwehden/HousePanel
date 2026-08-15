@@ -57,6 +57,7 @@ class CircuitBreaker:
         self._failure_threshold = failure_threshold
         self._reset_timeout = reset_timeout
         self._opened_at: float = 0.0
+        self._probe_granted_at: float = 0.0
 
     @property
     def state(self) -> str:
@@ -70,9 +71,17 @@ class CircuitBreaker:
                 # Grant exactly one probe slot; state stays HALF_OPEN until the
                 # probe outcome arrives via record_success or record_failure.
                 self._state = _CircuitState.HALF_OPEN
+                self._probe_granted_at = time.monotonic()
                 return True
             return False
-        # HALF_OPEN: probe already dispatched — block until outcome is recorded.
+        # HALF_OPEN: a probe is outstanding, so block until its outcome is
+        # recorded — but re-grant the slot if no outcome ever arrives.  A probe
+        # that is granted and then never dispatched would otherwise hold the
+        # breaker in HALF_OPEN for ever, and HALF_OPEN has no other exit.
+        if time.monotonic() - self._probe_granted_at >= self._reset_timeout:
+            log_event(logger, "circuit_probe_slot_reclaimed", level="warning")
+            self._probe_granted_at = time.monotonic()
+            return True
         return False
 
     def record_success(self) -> None:
@@ -111,55 +120,107 @@ class DispatchWorker:
         )
         try:
             self._queue.put_nowait(item)
+            return
+        except asyncio.QueueFull:
+            pass
+
+        # Full queue: a stale panel update has no value, so reclaim the space
+        # it occupies rather than rejecting the fresh command that replaces it.
+        dropped = self._purge_expired()
+        if dropped:
+            log_event(logger, "dispatch_queue_purged_expired", level="warning", dropped=dropped)
+        try:
+            self._queue.put_nowait(item)
         except asyncio.QueueFull:
             log_event(logger, "dispatch_queue_full", level="warning", cmd=cmd, event_id=event_id)
 
+    def _purge_expired(self) -> int:
+        """Drop every past-TTL command from the queue.  Returns the count."""
+        now = time.monotonic()
+        kept: list[_Command] = []
+        dropped = 0
+        while True:
+            try:
+                queued = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if now > queued.expires_at:
+                dropped += 1
+            else:
+                kept.append(queued)
+        for queued in kept:
+            self._queue.put_nowait(queued)
+        return dropped
+
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
+
+    @property
+    def circuit_state(self) -> str:
+        return self._circuit.state
+
     async def run(self) -> None:
         while True:
-            # If circuit is open, pause before trying to drain
-            if not self._circuit.allow_request():
+            try:
+                await self._run_once()
+            except Exception as exc:  # noqa: BLE001 — the worker must never die
                 log_event(
-                    logger,
-                    "circuit_open",
-                    level="warning",
-                    state=self._circuit.state,
-                    queue_depth=self._queue.qsize(),
+                    logger, "dispatch_worker_error",
+                    level="error", error=str(exc), error_type=type(exc).__name__,
                 )
                 await asyncio.sleep(1.0)
-                continue
 
-            # Non-blocking peek — sleep briefly when idle
-            try:
-                item = self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                await asyncio.sleep(0.05)
-                continue
+    async def _run_once(self) -> None:
+        # Non-blocking peek — sleep briefly when idle
+        try:
+            item = self._queue.get_nowait()
+        except asyncio.QueueEmpty:
+            await asyncio.sleep(0.05)
+            return
 
-            now = time.monotonic()
+        now = time.monotonic()
 
-            # Drop commands whose TTL has elapsed
-            if now > item.expires_at:
-                log_event(
-                    logger, "command_expired",
-                    cmd=item.cmd, event_id=item.event_id, attempts=item.attempts,
-                )
-                continue
+        # Drop commands whose TTL has elapsed.  This runs before the circuit
+        # check so a queue full of stale commands still drains while the
+        # circuit is open, instead of staying wedged at maxsize.
+        if now > item.expires_at:
+            log_event(
+                logger, "command_expired",
+                cmd=item.cmd, event_id=item.event_id, attempts=item.attempts,
+            )
+            return
 
-            # Command not yet eligible for retry — put it back and yield briefly
-            if now < item.not_before:
-                try:
-                    self._queue.put_nowait(item)
-                except asyncio.QueueFull:
-                    log_event(
-                        logger, "dispatch_queue_full_on_reinsert",
-                        level="warning", cmd=item.cmd, event_id=item.event_id,
-                    )
-                await asyncio.sleep(min(0.1, item.not_before - now))
-                continue
+        # Command not yet eligible for retry — put it back and yield briefly
+        if now < item.not_before:
+            self._reinsert(item, "dispatch_queue_full_on_reinsert")
+            await asyncio.sleep(min(0.1, item.not_before - now))
+            return
 
-            await self._attempt(item)
+        # Consume the circuit's probe slot only once a dispatch is certain to
+        # follow.  Taking it earlier lets the paths above swallow the probe
+        # without ever recording an outcome, wedging the breaker in HALF_OPEN.
+        if not self._circuit.allow_request():
+            self._reinsert(item, "dispatch_queue_full_on_reinsert")
+            log_event(
+                logger,
+                "circuit_open",
+                level="warning",
+                state=self._circuit.state,
+                queue_depth=self._queue.qsize(),
+            )
+            await asyncio.sleep(1.0)
+            return
+
+        await self._attempt(item)
 
     # -- internals -----------------------------------------------------------
+
+    def _reinsert(self, item: _Command, event: str) -> None:
+        try:
+            self._queue.put_nowait(item)
+        except asyncio.QueueFull:
+            log_event(logger, event, level="warning", cmd=item.cmd, event_id=item.event_id)
 
     async def _attempt(self, item: _Command) -> None:
         try:
@@ -193,6 +254,16 @@ class DispatchWorker:
             )
             self._circuit.record_failure()
 
+        except Exception as exc:  # noqa: BLE001
+            # An escaping exception would leave the HALF_OPEN probe unresolved,
+            # so every failure mode must record an outcome before unwinding.
+            log_event(
+                logger, "command_unexpected_error",
+                level="error", cmd=item.cmd, event_id=item.event_id,
+                error=str(exc), error_type=type(exc).__name__,
+            )
+            self._circuit.record_failure()
+
         self._requeue_with_backoff(item)
 
     def _requeue_with_backoff(self, item: _Command) -> None:
@@ -200,13 +271,7 @@ class DispatchWorker:
         jitter = random.uniform(0, 0.5)
         delay = min(_BACKOFF_BASE * (2 ** item.attempts) + jitter, _BACKOFF_MAX)
         item.not_before = time.monotonic() + delay
-        try:
-            self._queue.put_nowait(item)
-        except asyncio.QueueFull:
-            log_event(
-                logger, "dispatch_queue_full_on_retry",
-                level="warning", cmd=item.cmd, event_id=item.event_id,
-            )
+        self._reinsert(item, "dispatch_queue_full_on_retry")
 
 
 def create_worker() -> DispatchWorker:
