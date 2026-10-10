@@ -20,4 +20,6 @@ with ExitStack() as stack:
     with TestClient(module.app) as client:
         assert client.get("/healthz").json()["status"] == "ok"
         assert client.get("/metrics").status_code == 200
+        if service in ("calendar-poller", "weather-poller"):
+            assert client.post("/internal/poll-now").status_code == 202
 print(f"{service}: startup, health, metrics, shutdown passed")

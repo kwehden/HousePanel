@@ -1,10 +1,13 @@
 import hashlib
+import io
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 from unittest.mock import patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -136,6 +139,47 @@ def test_success_status_failure_does_not_redeploy_verified_release(tmp_path):
         agent.main()
         deploy.assert_called_once()
         assert json.loads(marker.read_text())["status_reported"] is True
+
+
+def test_successful_release_refreshes_supported_routes_and_verifies_delivery(tmp_path):
+    records = {s: {"archive": f"{s}.tar.gz", "image_id": "sha256:" + "b" * 64} for s in agent.SERVICES}
+    refreshed = []
+
+    def command(*args, **kwargs):
+        if args[0] == "docker":
+            if "inspect" in args:
+                if args[-1] == "{{.Id}}":
+                    return "sha256:" + "b" * 64
+                if "Labels" in args[-1]:
+                    return "a" * 40
+                return json.dumps([args[3].rsplit(":", 1)[0] + "@sha256:" + "c" * 64])
+            return ""
+        if "get" in args:
+            kind = args[args.index("get") + 1]
+            name = args[args.index("get") + 2]
+            if kind == "pods":
+                return json.dumps({"items": [{"metadata": {}, "status": {"containerStatuses": [{"restartCount": 0}]}}]})
+            if name.endswith("ring-integration"):
+                return json.dumps({"spec": {"replicas": 0}})
+            service = name.removeprefix("housepanel-")
+            return json.dumps({"spec": {"template": {"spec": {"containers": [
+                {"name": service, "image": "previous/" + service}]}}, "clusterIP": "127.0.0.1"}})
+        return ""
+
+    def response(request, **kwargs):
+        url = urlparse(request if isinstance(request, str) else request.full_url)
+        if url.path == "/internal/poll-now":
+            # Fixture matches the packaged calendar/weather API contracts.
+            assert url.port in (8003, 8004)
+            refreshed.append(url.port)
+            return io.BytesIO(b'{"accepted": true}')
+        if url.path == "/metrics":
+            return io.BytesIO(f'housepanel_source_last_push_success_timestamp_seconds{{service="test"}} {time.time()+1}\n'.encode())
+        return io.BytesIO(b'{"status":"ok","giga_connected":true,"normal_queue_depth":0}')
+
+    with patch.object(agent, "command", side_effect=command), patch.object(agent, "urlopen", side_effect=response):
+        agent.deploy(records, tmp_path, "a" * 40, "test", "registry:30500")
+    assert refreshed == [8003, 8004]
 
 
 @pytest.mark.parametrize("error", [subprocess.CalledProcessError(1, "rollout"), KeyboardInterrupt()])

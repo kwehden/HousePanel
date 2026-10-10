@@ -109,7 +109,7 @@ def deploy(records: dict, directory: Path, sha: str, context: str, registry: str
             changed.append(service)
             kubectl("set", "image", f"deployment/housepanel-{service}", f"{service}={targets[service]}")
             kubectl("rollout", "status", f"deployment/housepanel-{service}", "--timeout=180s")
-        for service in ("calendar-poller", "sysmon-poller", "weather-poller"):
+        for service in ("calendar-poller", "weather-poller"):
             ip = resource("service", service)["spec"]["clusterIP"]
             with urlopen(Request(f"http://{ip}:{PORTS[service]}/internal/poll-now", data=b"", method="POST"), timeout=5):
                 pass
