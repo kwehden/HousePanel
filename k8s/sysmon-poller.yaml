@@ -27,7 +27,7 @@ spec:
                     values: ["amd64"]
       containers:
         - name: sysmon-poller
-          image: laminarflow:30500/housepanel/sysmon-poller:0.3.0
+          image: laminarflow:30500/housepanel/sysmon-poller:0.3.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8005

@@ -1,6 +1,7 @@
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, patch
+from fastapi import HTTPException
 from shared.models import InternalEventRequest
 from aggregator.queue import TickerQueue
 from aggregator.dedup import DedupCache
@@ -17,17 +18,20 @@ def _req(event_type: str, payload: dict | None = None, source: str = "test") -> 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("source,event_type", [
+    ("ring", "doorbell-interrupt"),
+    ("ring-integration", "ticker"),
+    ("ring", "ticker"),
+    ("test", "doorbell-interrupt"),
+])
 @patch("aggregator.router.dispatch_command_to_transport", new_callable=AsyncMock)
-async def test_doorbell_dispatched_inline(mock_dispatch):
+async def test_retired_ring_events_are_rejected(mock_dispatch, source, event_type):
     q, d, s = TickerQueue(), DedupCache(), AggregatorState()
-    await route_event(_req("doorbell-interrupt", {"device_id": "d1"}), s, q, d)
-    mock_dispatch.assert_awaited_once()
-    call_kwargs = mock_dispatch.call_args
-    assert call_kwargs.kwargs["cmd"] == "TICKER-APPEND"
-    assert call_kwargs.kwargs["priority"] == 90
-    # Must NOT be enqueued to the ticker queue
-    snapshot = await q.snapshot()
-    assert len(snapshot) == 0
+    with pytest.raises(HTTPException) as exc:
+        await route_event(_req(event_type, {"device_id": "d1"}, source), s, q, d)
+    assert exc.value.status_code == 410
+    mock_dispatch.assert_not_awaited()
+    assert await q.snapshot() == []
 
 
 @pytest.mark.asyncio

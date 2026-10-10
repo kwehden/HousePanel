@@ -34,8 +34,7 @@ def _make_client(
 
 
 async def _run(client: MagicMock) -> None:
-    with patch("sysmon_poller.main.httpx.AsyncClient", return_value=client):
-        await _poll()
+    await _poll(client)
 
 
 @pytest.mark.asyncio

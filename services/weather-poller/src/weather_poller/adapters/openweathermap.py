@@ -19,6 +19,9 @@ class OpenWeatherMapAdapter:
         self._location = location
         self._client = httpx.Client(timeout=10)
 
+    def close(self) -> None:
+        self._client.close()
+
     def fetch_current(self) -> WeatherConditions:
         url = "https://api.openweathermap.org/data/2.5/weather"
         params = {

@@ -11,9 +11,19 @@ dependencies = [
     "google-auth>=2.29",
     "apscheduler>=3.10",
     "httpx>=0.27",
+    "requests>=2.31",
     "fastapi>=0.110",
     "uvicorn>=0.29",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "mypy", "types-requests"]
+
+[tool.mypy]
+files = ["src/calendar_poller"]
+strict = true
+follow_imports = "silent"
+ignore_missing_imports = true

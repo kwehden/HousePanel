@@ -24,6 +24,9 @@ class WttrInAdapter:
         self._location = location
         self._client = httpx.Client(timeout=10)
 
+    def close(self) -> None:
+        self._client.close()
+
     def fetch_current(self) -> WeatherConditions:
         # Empty location → wttr.in uses the request IP for geolocation
         url = f"https://wttr.in/{self._location}"

@@ -1,0 +1,11 @@
+[Unit]
+Description=HousePanel verified release agent
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/snap/bin
+ExecStart=/usr/bin/python3 %h/.local/lib/housepanel-release/release_agent.py
+TimeoutStartSec=60min
+TimeoutStopSec=20min
+NoNewPrivileges=true
+UMask=0077

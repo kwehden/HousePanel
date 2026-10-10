@@ -5,10 +5,12 @@ import dataclasses
 import logging
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from google.auth.exceptions import GoogleAuthError
 
 from shared.logging import log_event
 from shared.metrics import SourceMetrics
@@ -31,16 +33,18 @@ async def push_calendar_update(
     events: list[CalendarEvent],
     aggregator_url: str,
     logger: logging.Logger,
+    http_client: httpx.AsyncClient | None = None,
 ) -> None:
     body = {
         "source": "calendar-poller",
         "event_type": "calendar-update",
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "priority": 10,
         "payload": {"events": [dataclasses.asdict(e) for e in events]},
     }
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with (nullcontext(http_client) if http_client is not None
+                    else httpx.AsyncClient(timeout=5)) as client:
             resp = await client.post(f"{aggregator_url}/internal/events", json=body)
             resp.raise_for_status()
         metrics.record_push(True)
@@ -54,14 +58,15 @@ async def poll_google_calendar(
     state: CalendarPollerState,
     aggregator_url: str,
     logger: logging.Logger,
+    http_client: httpx.AsyncClient | None = None,
 ) -> None:
     log_event(logger, "poll_started")
     now = datetime.now(timezone.utc)
     time_min = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    lookahead = int(os.getenv("CALENDAR_LOOKAHEAD_DAYS", "30"))
-    time_max = time_min + timedelta(days=lookahead)
     start_mono = time.monotonic()
     try:
+        lookahead = int(os.getenv("CALENDAR_LOOKAHEAD_DAYS", "30"))
+        time_max = time_min + timedelta(days=lookahead)
         events = await asyncio.to_thread(client.fetch_events, time_min, time_max)
     except CalendarAPIError as exc:
         metrics.record_poll(False)
@@ -73,12 +78,17 @@ async def poll_google_calendar(
             error_message=exc.message,
         )
         return
+    except (httpx.HTTPError, GoogleAuthError, ValueError) as exc:
+        metrics.record_poll(False)
+        # Auth and response errors can contain credentials or private event data.
+        log_event(logger, "poll_error", level="error", error_type=type(exc).__name__)
+        return
     duration_ms = int((time.monotonic() - start_mono) * 1000)
     metrics.record_poll(True)
     state.last_events = events
     state.last_poll_timestamp = datetime.now(timezone.utc)
     state.last_poll_event_count = len(events)
-    await push_calendar_update(events, aggregator_url, logger)
+    await push_calendar_update(events, aggregator_url, logger, http_client)
     log_event(
         logger,
         "poll_success",

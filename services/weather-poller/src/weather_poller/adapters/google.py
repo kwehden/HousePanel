@@ -19,6 +19,9 @@ class GoogleWeatherAdapter:
         self._lon = lon_str.strip()
         self._client = httpx.Client(timeout=10)
 
+    def close(self) -> None:
+        self._client.close()
+
     def fetch_current(self) -> WeatherConditions:
         url = "https://weather.googleapis.com/v1/currentConditions:lookup"
         params = {

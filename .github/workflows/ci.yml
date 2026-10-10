@@ -4,6 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -20,6 +30,23 @@ jobs:
           - transport-adapter
           - weather-poller
           - webhook-receiver
+        include:
+          - service: aggregator
+            coverage: 85
+          - service: calendar-poller
+            coverage: 95
+          - service: ring-integration
+            coverage: 55
+          - service: shared
+            coverage: 95
+          - service: sysmon-poller
+            coverage: 90
+          - service: transport-adapter
+            coverage: 70
+          - service: weather-poller
+            coverage: 85
+          - service: webhook-receiver
+            coverage: 90
     name: pytest / ${{ matrix.service }}
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +62,110 @@ jobs:
         run: pip install -e "services/${{ matrix.service }}"
 
       - name: Install test tools
-        run: pip install pytest pytest-asyncio httpx
+        run: pip install pytest pytest-asyncio pytest-cov httpx
 
       - name: Run tests
-        run: pytest "services/${{ matrix.service }}/tests" -v --asyncio-mode=auto
+        env:
+          SERVICE: ${{ matrix.service }}
+          COVERAGE_FLOOR: ${{ matrix.coverage }}
+        run: |
+          pytest "services/$SERVICE/tests" -v --asyncio-mode=auto \
+            --cov="${SERVICE//-/_}" --cov-report=xml:coverage.xml --cov-report=term \
+            --cov-fail-under="$COVERAGE_FLOOR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: coverage.xml
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e services/shared -e 'services/calendar-poller[dev]' ruff
+      - run: ruff check --select E9,F63,F7,F82 services tools
+      - run: python -m mypy
+        working-directory: services/calendar-poller
+      - run: pytest tools/tests -q
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [aggregator, calendar-poller, sysmon-poller, transport-adapter, weather-poller, webhook-receiver]
+    name: image / ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build, smoke test, run image tests, and check memory
+        env:
+          SOAK_CYCLES: ${{ github.event_name == 'schedule' && '10000' || '3000' }}
+        run: python tools/ci_image.py '${{ matrix.service }}' --cycles "$SOAK_CYCLES"
+      - uses: actions/upload-artifact@v4
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: image-${{ matrix.service }}
+          path: |
+            build/release/${{ matrix.service }}/*.tar.gz
+            build/release/${{ matrix.service }}/${{ matrix.service }}.json
+            build/release/${{ matrix.service }}/memory.jsonl
+          retention-days: 1
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memory-${{ matrix.service }}
+          path: build/release/${{ matrix.service }}/memory.jsonl
+          retention-days: 7
+          if-no-files-found: ignore
+
+  gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [test, quality, image]
+    if: always()
+    steps:
+      - name: Require every check to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python -c 'import json, os; assert all(j["result"] == "success" for j in json.loads(os.environ["RESULTS"]).values())'
+
+  release:
+    runs-on: ubuntu-latest
+    needs: gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: release
+          merge-multiple: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: housepanel-release
+          path: release
+          retention-days: 14
+          if-no-files-found: error
+      - name: Remove intermediate image artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("image-")) | .id' |
+          while read -r artifact; do
+            gh api --method DELETE "repos/$GH_REPO/actions/artifacts/$artifact"
+          done

@@ -1,0 +1,6 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN pip install --no-cache-dir --no-deps --target /test-tools \
+    pytest==8.4.2 pytest-asyncio==1.2.0 iniconfig==2.1.0 packaging==25.0 \
+    pluggy==1.6.0 pygments==2.19.2
+ENV PYTHONPATH=/app/src:/test-tools
