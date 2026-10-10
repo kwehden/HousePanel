@@ -12,6 +12,7 @@ from fastapi.responses import Response
 
 from shared.logging import make_logger, log_event
 from shared.metrics import CONTENT_TYPE, SourceMetrics, render
+from shared.polling import PollRunner
 
 logger = make_logger("sysmon-poller")
 
@@ -24,50 +25,49 @@ _POLL_INTERVAL  = int(os.environ.get("SYSMON_POLL_INTERVAL_SECONDS", "20"))
 metrics = SourceMetrics("sysmon", poll_interval_seconds=_POLL_INTERVAL)
 
 
-async def _poll() -> None:
+async def _poll(client: httpx.AsyncClient) -> None:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            latest_resp = await client.get(
-                f"{_ARDTEMP_URL}/latest", params={"board_id": _BOARD_ID}
-            )
-            if latest_resp.status_code != 200:
-                metrics.record_poll(False)
-                log_event(logger, "poll_failed", level="warning",
-                          status=latest_resp.status_code)
-                return
-            latest = latest_resp.json()
-            if "error" in latest:
-                metrics.record_poll(False)
-                log_event(logger, "poll_no_data", level="warning", board_id=_BOARD_ID)
-                return
+        latest_resp = await client.get(
+            f"{_ARDTEMP_URL}/latest", params={"board_id": _BOARD_ID}
+        )
+        if latest_resp.status_code != 200:
+            metrics.record_poll(False)
+            log_event(logger, "poll_failed", level="warning",
+                      status=latest_resp.status_code)
+            return
+        latest = latest_resp.json()
+        if "error" in latest:
+            metrics.record_poll(False)
+            log_event(logger, "poll_no_data", level="warning", board_id=_BOARD_ID)
+            return
 
-            temp_c = float(latest["t"])
-            metrics.record_poll(True)
-            humidity_pct = float(latest["h"]) if latest.get("h") is not None else None
+        temp_c = float(latest["t"])
+        metrics.record_poll(True)
+        humidity_pct = float(latest["h"]) if latest.get("h") is not None else None
 
-            agg_resp = await client.post(
-                f"{_AGGREGATOR_URL}/internal/events",
-                json={
-                    "source": "sysmon-poller",
-                    "event_type": "sysmon-update",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "priority": 0,
-                    "payload": {
-                        "temp_c": temp_c,
-                        "humidity_pct": humidity_pct,
-                        "board_id": _BOARD_ID,
-                        "label": _LABEL,
-                    },
-                    "ttl_seconds": 90,
+        agg_resp = await client.post(
+            f"{_AGGREGATOR_URL}/internal/events",
+            json={
+                "source": "sysmon-poller",
+                "event_type": "sysmon-update",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "priority": 0,
+                "payload": {
+                    "temp_c": temp_c,
+                    "humidity_pct": humidity_pct,
+                    "board_id": _BOARD_ID,
+                    "label": _LABEL,
                 },
-            )
-            if agg_resp.status_code not in (200, 202, 204):
-                metrics.record_push(False)
-                log_event(logger, "aggregator_post_failed", level="warning",
-                          status=agg_resp.status_code)
-                return
-            metrics.record_push(True)
-            log_event(logger, "poll_success", temp_c=temp_c, humidity_pct=humidity_pct)
+                "ttl_seconds": 90,
+            },
+        )
+        if agg_resp.status_code not in (200, 202, 204):
+            metrics.record_push(False)
+            log_event(logger, "aggregator_post_failed", level="warning",
+                      status=agg_resp.status_code)
+            return
+        metrics.record_push(True)
+        log_event(logger, "poll_success", temp_c=temp_c, humidity_pct=humidity_pct)
     except Exception as exc:
         metrics.record_poll(False)
         log_event(logger, "poll_error", level="warning", error=str(exc))
@@ -75,21 +75,26 @@ async def _poll() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        _poll,
-        trigger="interval",
-        seconds=_POLL_INTERVAL,
-        id="poll_sysmon",
-        replace_existing=True,
-        next_run_time=datetime.now(timezone.utc),
-    )
-    scheduler.start()
-    log_event(logger, "scheduler_started",
-              board_id=_BOARD_ID, poll_interval_seconds=_POLL_INTERVAL)
-    yield
-    scheduler.shutdown(wait=False)
-    log_event(logger, "scheduler_stopped")
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        runner = PollRunner(lambda: _poll(client), logger)
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            runner.run,
+            trigger="interval",
+            seconds=_POLL_INTERVAL,
+            id="poll_sysmon",
+            replace_existing=True,
+            next_run_time=datetime.now(timezone.utc),
+        )
+        scheduler.start()
+        log_event(logger, "scheduler_started",
+                  board_id=_BOARD_ID, poll_interval_seconds=_POLL_INTERVAL)
+        try:
+            yield
+        finally:
+            scheduler.shutdown(wait=False)
+            await runner.close()
+            log_event(logger, "scheduler_stopped")
 
 
 app = FastAPI(lifespan=lifespan)

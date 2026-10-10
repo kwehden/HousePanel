@@ -7,7 +7,8 @@ metadata:
     app: housepanel-ring-integration
     app.kubernetes.io/part-of: housepanel
 spec:
-  replicas: 1
+  # Retired: keep zero replicas so applying k8s/ also stops existing installs.
+  replicas: 0
   selector:
     matchLabels:
       app: housepanel-ring-integration
@@ -17,7 +18,7 @@ spec:
         app: housepanel-ring-integration
     spec:
       serviceAccountName: housepanel-ring-integration
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -72,7 +73,7 @@ metadata:
   namespace: housepanel
   labels:
     app.kubernetes.io/part-of: housepanel
-    housepanel.io/metrics: "true"
+    housepanel.io/metrics: "false"
 spec:
   type: ClusterIP
   selector:

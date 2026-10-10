@@ -124,18 +124,6 @@ spec:
               Pushes from {{ $labels.service }} have been failing continuously
               for 15 minutes.
 
-        - alert: HousePanelRingDisconnected
-          expr: housepanel_ring_connected == 0
-          for: 30m
-          labels:
-            severity: warning
-          annotations:
-            summary: Ring event listener is not subscribed
-            description: >-
-              ring-integration is not subscribed to doorbell events, so presses
-              will not reach the panel. Silence here is indistinguishable from a
-              quiet doorbell, which is why the connection is alerted instead.
-
         - alert: HousePanelMetricsMissing
           expr: |
             absent(housepanel_panel_connected)

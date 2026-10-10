@@ -3,6 +3,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
+from fastapi import HTTPException
 from shared.models import UnifiedEvent, InternalEventRequest
 from shared.logging import make_logger, log_event
 from .queue import TickerQueue
@@ -19,26 +20,11 @@ async def route_event(
     queue: TickerQueue,
     dedup: DedupCache,
 ) -> None:
+    if event_req.source in {"ring", "ring-integration"} or event_req.event_type == "doorbell-interrupt":
+        raise HTTPException(status_code=410, detail="Ring doorbell notifications have been retired")
+
     event_id = str(uuid.uuid4())
     ts = datetime.now(timezone.utc)
-
-    if event_req.event_type == "doorbell-interrupt":
-        log_event(logger, "doorbell_routed", event_id=event_id, source=event_req.source)
-        device_name = event_req.payload.get("device_name", "Doorbell")
-        scene_desc = event_req.payload.get("scene_description", "")
-        from datetime import datetime as _dt
-        time_str = _dt.now().strftime("%-I:%M %p")
-        if scene_desc:
-            text = f"Ring {time_str}: {scene_desc}"
-        else:
-            text = f"Ring: {device_name}  {time_str}"
-        await dispatch_command_to_transport(
-            cmd="TICKER-APPEND",
-            priority=90,
-            payload={"text": text},
-            event_id=event_id,
-        )
-        return
 
     if event_req.event_type == "weather-update":
         from shared.models import WeatherConditions, ForecastDay

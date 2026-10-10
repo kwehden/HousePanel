@@ -114,3 +114,53 @@ def test_event_summary_not_logged(capsys: pytest.CaptureFixture) -> None:
     assert "test@group.calendar.google.com" not in log_output, (
         "GOOGLE_CALENDAR_ID must not appear in log output"
     )
+
+
+def test_http_and_auth_sessions_reused_and_closed():
+    from datetime import datetime, timezone
+
+    http = MagicMock()
+    http.get.return_value.is_success = True
+    http.get.return_value.json.return_value = {"items": []}
+    creds = _mock_credentials(valid=False)
+    with patch("google.auth.default", return_value=(creds, "test")), \
+         patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "one,two"}), \
+         patch("calendar_poller.calendar_client.httpx.Client", return_value=http) as factory, \
+         patch("calendar_poller.calendar_client.requests.Session") as auth_factory, \
+         patch("google.auth.transport.requests.Request") as request:
+        client = GoogleCalendarClient()
+        now = datetime.now(timezone.utc)
+        for _ in range(100):
+            client.fetch_events(now, now)
+        factory.assert_called_once()
+        assert http.get.call_count == 200
+        auth_factory.assert_called_once()
+        request.assert_called_once_with(session=auth_factory.return_value)
+        assert all(c.kwargs["session"] is auth_factory.return_value
+                   for c in request.call_args_list)
+        http.close.assert_not_called()
+        client.close()
+        http.close.assert_called_once()
+        auth_factory.return_value.close.assert_called_once()
+
+
+def test_google_request_wrapper_does_not_close_session_after_each_refresh():
+    """Use the real wrapper: a mock hides its session-closing destructor."""
+    import gc
+
+    creds = _mock_credentials(valid=False)
+    # A MagicMock refresh would retain the request in its call history and
+    # accidentally prevent its destructor from running in the broken version.
+    creds.refresh = lambda request: None
+    session = MagicMock()
+    with patch("google.auth.default", return_value=(creds, "test")), \
+         patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "one"}), \
+         patch("calendar_poller.calendar_client.httpx.Client"), \
+         patch("calendar_poller.calendar_client.requests.Session", return_value=session):
+        client = GoogleCalendarClient()
+        for _ in range(20):
+            client._ensure_valid_token()
+        gc.collect()
+        session.close.assert_not_called()
+        client.close()
+        session.close.assert_called_once()

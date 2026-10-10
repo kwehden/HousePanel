@@ -36,11 +36,12 @@ def _respond(items: list[dict]) -> MagicMock:
 
 def _fetch(items: list[dict]):
     http = _respond(items)
-    with patch("calendar_poller.calendar_client.httpx.Client", return_value=http):
-        events = _client().fetch_events(
-            datetime(2026, 8, 1, tzinfo=timezone.utc),
-            datetime(2026, 8, 31, tzinfo=timezone.utc),
-        )
+    client = _client()
+    client._http_client = http
+    events = client.fetch_events(
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 31, tzinfo=timezone.utc),
+    )
     return events, http
 
 
