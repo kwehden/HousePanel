@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 
 from check_memory import assess
+from release_agent import archive_config
 
 ROOT = Path(__file__).resolve().parent.parent
 SERVICES = ("aggregator", "calendar-poller", "sysmon-poller", "transport-adapter",
@@ -62,8 +63,9 @@ def build(service: str, sha: str, cycles: int) -> None:
     with archive.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     image_id = run("docker", "image", "inspect", image, "--format", "{{.Id}}", capture_output=True, text=True).stdout.strip()
+    config_digest, _ = archive_config(archive, image)
     (output / f"{service}.json").write_text(json.dumps({"service": service, "sha": sha,
-        "archive": archive.name, "sha256": digest, "image_id": image_id}))
+        "archive": archive.name, "sha256": digest, "image_id": image_id, "config_digest": config_digest}))
 
 
 if __name__ == "__main__":

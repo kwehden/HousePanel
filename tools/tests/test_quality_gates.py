@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import time
 from unittest.mock import patch
 from urllib.parse import urlparse
@@ -75,7 +76,7 @@ def artifact_set(directory):
         archive.write_bytes(b"synthetic archive")
         (directory / f"{service}.json").write_text(json.dumps({
             "sha": "a" * 40, "service": service, "archive": archive.name,
-            "image_id": "sha256:" + "b" * 64,
+            "config_digest": "sha256:" + "b" * 64,
             "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
         }))
 
@@ -142,7 +143,7 @@ def test_success_status_failure_does_not_redeploy_verified_release(tmp_path):
 
 
 def test_successful_release_refreshes_supported_routes_and_verifies_delivery(tmp_path):
-    records = {s: {"archive": f"{s}.tar.gz", "image_id": "sha256:" + "b" * 64} for s in agent.SERVICES}
+    records = {s: {"archive": f"{s}.tar.gz", "config_digest": "sha256:" + "b" * 64} for s in agent.SERVICES}
     refreshed = []
 
     def command(*args, **kwargs):
@@ -177,14 +178,15 @@ def test_successful_release_refreshes_supported_routes_and_verifies_delivery(tmp
             return io.BytesIO(f'housepanel_source_last_push_success_timestamp_seconds{{service="test"}} {time.time()+1}\n'.encode())
         return io.BytesIO(b'{"status":"ok","giga_connected":true,"normal_queue_depth":0}')
 
-    with patch.object(agent, "command", side_effect=command), patch.object(agent, "urlopen", side_effect=response):
+    with patch.object(agent, "command", side_effect=command), patch.object(agent, "urlopen", side_effect=response), \
+         patch.object(agent, "verify_loaded_image"):
         agent.deploy(records, tmp_path, "a" * 40, "test", "registry:30500")
     assert refreshed == [8003, 8004]
 
 
 @pytest.mark.parametrize("error", [subprocess.CalledProcessError(1, "rollout"), KeyboardInterrupt()])
 def test_rollout_failure_restores_all_changed_images(tmp_path, error):
-    records = {s: {"archive": f"{s}.tar.gz", "image_id": "sha256:" + "b" * 64} for s in agent.SERVICES}
+    records = {s: {"archive": f"{s}.tar.gz", "config_digest": "sha256:" + "b" * 64} for s in agent.SERVICES}
     changes = []
     failed = False
 
@@ -223,7 +225,55 @@ def test_rollout_failure_restores_all_changed_images(tmp_path, error):
         def read(self):
             return b'{"giga_connected": true}'
 
-    with patch.object(agent, "command", side_effect=command), patch.object(agent, "urlopen", return_value=Response()):
+    with patch.object(agent, "command", side_effect=command), patch.object(agent, "urlopen", return_value=Response()), \
+         patch.object(agent, "verify_loaded_image"):
         with pytest.raises(type(error)):
             agent.deploy(records, tmp_path, "a" * 40, "test", "registry:30500")
     assert changes[-2:] == ["calendar-poller=previous/calendar-poller", "aggregator=previous/aggregator"]
+
+
+def image_fixture(tmp_path):
+    image = "housepanel/test:" + "a" * 40
+    config = {"architecture": "amd64", "os": "linux",
+              "rootfs": {"type": "layers", "diff_ids": ["sha256:" + "c" * 64]},
+              "config": {"Cmd": ["python", "app.py"], "Labels": {"org.opencontainers.image.revision": "a" * 40}}}
+    payload = json.dumps(config).encode()
+    digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+    archive = tmp_path / "test.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        for name, data in [("manifest.json", json.dumps([{"Config": "config.json", "RepoTags": [image]}]).encode()),
+                           ("config.json", payload)]:
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            bundle.addfile(member, io.BytesIO(data))
+    actual = {"Id": "sha256:" + "d" * 64, "Architecture": "amd64", "Os": "linux",
+              "RootFS": {"Type": "layers", "Layers": config["rootfs"]["diff_ids"]},
+              "Config": {**config["config"], "Entrypoint": None, "User": "", "AttachStdin": False}}
+    return image, archive, digest, actual
+
+
+def test_content_identity_survives_docker_backend_id_changes(tmp_path):
+    image, archive, digest, actual = image_fixture(tmp_path)
+    with patch.object(agent, "command", return_value=json.dumps(actual)):
+        agent.verify_loaded_image(image, archive, digest, "a" * 40)
+
+
+@pytest.mark.parametrize("field", ["layer", "command", "platform", "extra_setting"])
+def test_loaded_content_mismatch_is_rejected(tmp_path, field):
+    image, archive, digest, actual = image_fixture(tmp_path)
+    if field == "layer":
+        actual["RootFS"]["Layers"] = ["sha256:" + "e" * 64]
+    elif field == "command":
+        actual["Config"]["Cmd"] = ["other.py"]
+    elif field == "platform":
+        actual["Architecture"] = "arm64"
+    else:
+        actual["Config"]["User"] = "unrelated-user"
+    with patch.object(agent, "command", return_value=json.dumps(actual)), pytest.raises(RuntimeError, match="content"):
+        agent.verify_loaded_image(image, archive, digest, "a" * 40)
+
+
+def test_incorrect_config_digest_is_rejected(tmp_path):
+    image, archive, digest, actual = image_fixture(tmp_path)
+    with pytest.raises(ValueError, match="digest"):
+        agent.verify_loaded_image(image, archive, "sha256:" + "f" * 64, "a" * 40)
