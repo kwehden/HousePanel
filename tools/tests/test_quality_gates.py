@@ -95,6 +95,49 @@ def test_artifact_cannot_choose_an_arbitrary_path(tmp_path):
         agent.verify_artifacts(tmp_path, "a" * 40)
 
 
+def test_success_status_failure_does_not_redeploy_verified_release(tmp_path):
+    run = run_record(id=123, html_url="https://github.com/kwehden/HousePanel/actions/runs/123")
+    status_attempts = 0
+
+    def api(path):
+        if path == "commits/main":
+            return {"sha": "a" * 40}
+        if "/runs?" in path:
+            return {"workflow_runs": [run]}
+        if path.endswith("/artifacts"):
+            return {"artifacts": [{"name": "housepanel-release", "expired": False}]}
+        return {"jobs": [{"name": name, "conclusion": "success"} for name in
+            {"Quality Gate", "quality", "release"} | {f"image / {s}" for s in agent.SERVICES}]}
+
+    def command(*args, **kwargs):
+        nonlocal status_attempts
+        if args[:3] == ("gh", "run", "download"):
+            artifact_set(Path(args[-1]))
+            return ""
+        if args[4].endswith("/deployments"):
+            return '{"id": 99}'
+        state = json.loads(kwargs["input"])["state"]
+        if state == "success":
+            status_attempts += 1
+            if status_attempts == 1:
+                raise subprocess.CalledProcessError(1, args)
+        return "{}"
+
+    with patch.object(agent, "api", side_effect=api), \
+         patch.object(agent, "command", side_effect=command), \
+         patch.object(agent, "deploy") as deploy, \
+         patch.object(agent.signal, "signal"), \
+         patch.object(sys, "argv", ["release_agent.py", "--state-dir", str(tmp_path)]):
+        with pytest.raises(subprocess.CalledProcessError):
+            agent.main()
+        marker = tmp_path / "deployed.json"
+        assert json.loads(marker.read_text())["status_reported"] is False
+        assert not (tmp_path / "failed.json").exists()
+        agent.main()
+        deploy.assert_called_once()
+        assert json.loads(marker.read_text())["status_reported"] is True
+
+
 @pytest.mark.parametrize("error", [subprocess.CalledProcessError(1, "rollout"), KeyboardInterrupt()])
 def test_rollout_failure_restores_all_changed_images(tmp_path, error):
     records = {s: {"archive": f"{s}.tar.gz", "image_id": "sha256:" + "b" * 64} for s in agent.SERVICES}
