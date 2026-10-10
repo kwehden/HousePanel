@@ -11,10 +11,11 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
 import time
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 REPO = "kwehden/HousePanel"
 SERVICES = ("aggregator", "calendar-poller", "sysmon-poller", "transport-adapter",
@@ -29,6 +30,12 @@ def command(*args: str, **kwargs) -> str:
 
 def api(path: str):
     return json.loads(command("gh", "api", f"repos/{REPO}/{path}"))
+
+
+def write_state(path: Path, record: dict) -> None:
+    pending = path.with_suffix(".tmp")
+    pending.write_text(json.dumps(record))
+    os.replace(pending, path)
 
 
 def select_run(head: str, runs: list[dict]) -> dict | None:
@@ -102,6 +109,10 @@ def deploy(records: dict, directory: Path, sha: str, context: str, registry: str
             changed.append(service)
             kubectl("set", "image", f"deployment/housepanel-{service}", f"{service}={targets[service]}")
             kubectl("rollout", "status", f"deployment/housepanel-{service}", "--timeout=180s")
+        for service in ("calendar-poller", "sysmon-poller", "weather-poller"):
+            ip = resource("service", service)["spec"]["clusterIP"]
+            with urlopen(Request(f"http://{ip}:{PORTS[service]}/internal/poll-now", data=b"", method="POST"), timeout=5):
+                pass
         deadline = time.monotonic() + 300
         last_error = ""
         while time.monotonic() < deadline:
@@ -130,7 +141,7 @@ def deploy(records: dict, directory: Path, sha: str, context: str, registry: str
                 time.sleep(5)
         else:
             raise RuntimeError(f"Release verification timed out: {last_error}")
-    except Exception:
+    except BaseException:
         failures = []
         for service in reversed(changed):
             try:
@@ -151,6 +162,10 @@ def main() -> None:
     parser.add_argument("--registry", default="laminarflow:30500")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    def terminated(signum, frame):
+        raise RuntimeError("Release interrupted by SIGTERM")
+
+    signal.signal(signal.SIGTERM, terminated)
     args.state_dir.mkdir(parents=True, exist_ok=True)
     with (args.state_dir / "lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -162,6 +177,14 @@ def main() -> None:
             return
         marker = args.state_dir / "deployed.json"
         if marker.exists() and json.loads(marker.read_text())["sha"] == head:
+            deployed = json.loads(marker.read_text())
+            if not args.dry_run and not deployed.get("status_reported", False):
+                command("gh", "api", "--method", "POST",
+                    f"repos/{REPO}/deployments/{deployed['deployment_id']}/statuses", "--input", "-",
+                    input=json.dumps({"state": "success", "description": "Rollouts and delivery verified",
+                                      "log_url": run["html_url"]}))
+                deployed["status_reported"] = True
+                write_state(marker, deployed)
             return
         failed = args.state_dir / "failed.json"
         if failed.exists() and json.loads(failed.read_text())["sha"] == head:
@@ -201,14 +224,16 @@ def main() -> None:
             status("in_progress", "Deploying tested images and checking delivery")
             try:
                 deploy(records, directory, head, args.context, args.registry)
-            except Exception as exc:
+            except BaseException as exc:
                 failed.write_text(json.dumps({"sha": head, "run_id": run["id"], "error": str(exc), "time": time.time()}))
                 status("failure", "Release failed; inspect local journal and rollback result")
                 raise
+            deployed = {"sha": head, "run_id": run["id"], "time": time.time(),
+                        "deployment_id": deployment["id"], "status_reported": False}
+            write_state(marker, deployed)
             status("success", "Rollouts healthy, panel connected, all pollers delivered")
-        pending = args.state_dir / "deployed.tmp"
-        pending.write_text(json.dumps({"sha": head, "run_id": run["id"], "time": time.time()}))
-        os.replace(pending, marker)
+            deployed["status_reported"] = True
+            write_state(marker, deployed)
 
 
 if __name__ == "__main__":

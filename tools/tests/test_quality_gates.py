@@ -95,7 +95,8 @@ def test_artifact_cannot_choose_an_arbitrary_path(tmp_path):
         agent.verify_artifacts(tmp_path, "a" * 40)
 
 
-def test_rollout_failure_restores_all_changed_images(tmp_path):
+@pytest.mark.parametrize("error", [subprocess.CalledProcessError(1, "rollout"), KeyboardInterrupt()])
+def test_rollout_failure_restores_all_changed_images(tmp_path, error):
     records = {s: {"archive": f"{s}.tar.gz", "image_id": "sha256:" + "b" * 64} for s in agent.SERVICES}
     changes = []
     failed = False
@@ -122,7 +123,7 @@ def test_rollout_failure_restores_all_changed_images(tmp_path):
             changes.append(args[-1])
         if "rollout" in args and "deployment/housepanel-calendar-poller" in args and not failed:
             failed = True
-            raise subprocess.CalledProcessError(1, args)
+            raise error
         return ""
 
     class Response:
@@ -136,6 +137,6 @@ def test_rollout_failure_restores_all_changed_images(tmp_path):
             return b'{"giga_connected": true}'
 
     with patch.object(agent, "command", side_effect=command), patch.object(agent, "urlopen", return_value=Response()):
-        with pytest.raises(subprocess.CalledProcessError):
+        with pytest.raises(type(error)):
             agent.deploy(records, tmp_path, "a" * 40, "test", "registry:30500")
     assert changes[-2:] == ["calendar-poller=previous/calendar-poller", "aggregator=previous/aggregator"]
