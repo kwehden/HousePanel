@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import tarfile
 import tempfile
 import time
 from urllib.request import Request, urlopen
@@ -47,13 +48,52 @@ def select_run(head: str, runs: list[dict]) -> dict | None:
     return None
 
 
+def archive_config(archive: Path, image: str) -> tuple[str, dict]:
+    with tarfile.open(archive, "r:gz") as bundle:
+        def read_json_member(name: str) -> bytes:
+            member = bundle.getmember(name)
+            if not member.isfile() or member.size > 1024 * 1024:
+                raise ValueError("Invalid image configuration member")
+            stream = bundle.extractfile(member)
+            assert stream is not None
+            return stream.read()
+
+        manifests = json.loads(read_json_member("manifest.json"))
+        if len(manifests) != 1 or manifests[0]["RepoTags"] != [image]:
+            raise ValueError("Archive must contain only the expected release image")
+        payload = read_json_member(manifests[0]["Config"])
+    return "sha256:" + hashlib.sha256(payload).hexdigest(), json.loads(payload)
+
+
+def verify_loaded_image(image: str, archive: Path, digest: str, sha: str) -> None:
+    config_digest, expected = archive_config(archive, image)
+    if config_digest != digest:
+        raise ValueError("Image config digest mismatch")
+    actual = json.loads(command("docker", "image", "inspect", image, "--format", "{{json .}}"))
+
+    # Docker stores expose different IDs and add empty legacy config fields.
+    # Compare execution settings and uncompressed layer digests, not backend IDs.
+    def normalized(value):
+        if isinstance(value, dict):
+            return {k: normalized(v) for k, v in value.items() if v not in (None, "", False, [], {})}
+        return value
+
+    if (actual["Architecture"] != expected["architecture"] or
+            actual["Os"] != expected["os"] or actual.get("Variant", "") != expected.get("variant", "") or
+            actual["RootFS"] != {"Type": expected["rootfs"]["type"], "Layers": expected["rootfs"]["diff_ids"]} or
+            normalized(actual["Config"]) != normalized(expected["config"])):
+        raise RuntimeError("Loaded image content mismatch")
+    if actual["Config"].get("Labels", {}).get("org.opencontainers.image.revision") != sha:
+        raise RuntimeError("Image revision mismatch")
+
+
 def verify_artifacts(directory: Path, sha: str) -> dict[str, dict]:
     records = {}
     for service in SERVICES:
         record = json.loads((directory / f"{service}.json").read_text())
         if (record["sha"] != sha or record["service"] != service or
                 record["archive"] != f"{service}.tar.gz" or
-                not re.fullmatch(r"sha256:[0-9a-f]{64}", record["image_id"])):
+                not re.fullmatch(r"sha256:[0-9a-f]{64}", record["config_digest"])):
             raise ValueError(f"Invalid release metadata for {service}")
         with (directory / record["archive"]).open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -88,13 +128,7 @@ def deploy(records: dict, directory: Path, sha: str, context: str, registry: str
     for service, record in records.items():
         command("docker", "load", "--input", str(directory / record["archive"]))
         image = f"housepanel/{service}:{sha}"
-        actual = command("docker", "image", "inspect", image, "--format", "{{.Id}}")
-        if actual != record["image_id"]:
-            raise RuntimeError(f"Loaded image mismatch for {service}")
-        revision = command("docker", "image", "inspect", image, "--format",
-                           '{{index .Config.Labels "org.opencontainers.image.revision"}}')
-        if revision != sha:
-            raise RuntimeError(f"Image revision mismatch for {service}")
+        verify_loaded_image(image, directory / record["archive"], record["config_digest"], sha)
         target = f"{registry}/housepanel/{service}:{sha}"
         command("docker", "tag", image, target)
         command("docker", "push", target)
