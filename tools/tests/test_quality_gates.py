@@ -48,6 +48,15 @@ def test_short_probe_cannot_pass():
         assess(samples()[:2])
 
 
+def test_calendar_gate_does_not_hide_first_500_polls():
+    early_growth = [{"cycle": cycle, "rss_kib": 50000 + (6000 if cycle >= 250 else 0),
+                     "fds": 10, "tasks": 2, "threads": 2}
+                    for cycle in [12, 250, 500, 750, 1000, 1250, 1500]]
+    assert assess(early_growth)["growth_mib"] == 0
+    with pytest.raises(ValueError, match="RSS"):
+        assess(early_growth, warmup=12)
+
+
 def run_record(**overrides):
     record = {"head_sha": "a" * 40, "head_branch": "main", "event": "push",
               "status": "completed", "conclusion": "success",

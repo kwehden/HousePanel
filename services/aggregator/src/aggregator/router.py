@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from shared.models import UnifiedEvent, InternalEventRequest
+from shared.contracts import validate_payload
 from shared.logging import make_logger, log_event
 from .queue import TickerQueue
 from .dedup import DedupCache
@@ -22,6 +23,11 @@ async def route_event(
 ) -> None:
     if event_req.source in {"ring", "ring-integration"} or event_req.event_type == "doorbell-interrupt":
         raise HTTPException(status_code=410, detail="Ring doorbell notifications have been retired")
+
+    try:
+        event_req.payload = validate_payload(event_req.event_type, event_req.payload)
+    except (ValueError, TypeError, RecursionError):
+        raise HTTPException(status_code=422, detail="Invalid or oversized event payload") from None
 
     event_id = str(uuid.uuid4())
     ts = datetime.now(timezone.utc)

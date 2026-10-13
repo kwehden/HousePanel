@@ -14,6 +14,7 @@ from fastapi.responses import Response
 from shared.logging import make_logger, log_event
 from shared.metrics import CONTENT_TYPE, render
 from shared.polling import PollRunner
+from shared.contracts import JsonObject
 from weather_poller.poller import metrics as source_metrics
 from weather_poller.adapter import WeatherAdapter
 from weather_poller.adapters.google import GoogleWeatherAdapter
@@ -95,7 +96,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/internal/poll-now", status_code=202)
-async def poll_now() -> dict:
+async def poll_now() -> dict[str, bool]:
     app.state.poll_runner.request()
     return {"accepted": True}
 
@@ -106,7 +107,7 @@ async def metrics() -> Response:
 
 
 @app.get("/healthz")
-async def healthz() -> dict:
+async def healthz() -> JsonObject:
     return {
         "status": "ok",
         "last_poll_timestamp": (

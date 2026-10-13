@@ -106,7 +106,7 @@ async def metrics_endpoint() -> Response:
 
 
 @app.get("/healthz")
-async def healthz() -> dict:
+async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 

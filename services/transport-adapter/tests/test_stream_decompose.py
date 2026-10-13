@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from transport_adapter.stream_decompose import decompose_command
+from transport_adapter.stream_decompose import encode_frame
 
 
 def _weather(**over) -> dict:
@@ -92,3 +93,16 @@ def test_unknown_command_passes_through_untouched():
 def test_every_message_carries_a_cmd(cmd):
     for msg in decompose_command(cmd, _weather()):
         assert msg.get("cmd"), f"{cmd} produced a message with no cmd"
+
+
+@pytest.mark.parametrize("text", ["\u00e9" * 50, "\U0001f600" * 50, '\\"\n' * 50])
+def test_calendar_frames_fit_encoded_byte_budget(text):
+    frames = decompose_command("CALENDAR-UPDATE", {"events": [{"summary": text, "start": "2026-10-13T10:00:00"}]})
+    assert len(encode_frame(frames[0]).encode()) < 200
+    assert frames[0]["s"] and text.startswith(frames[0]["s"])
+    assert len(frames[0]["s"].encode()) <= 50
+
+
+def test_large_non_text_unknown_frame_is_rejected():
+    with pytest.raises(ValueError, match="byte budget"):
+        decompose_command("UNKNOWN", {"data": list(range(200))})

@@ -1,7 +1,9 @@
 from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 from fastapi import FastAPI
+from shared.body_limit import BodyLimitMiddleware
 from .queue import TickerQueue
 from .dedup import DedupCache
 from .state import AggregatorState
@@ -12,7 +14,7 @@ from .routes import router, init_singletons
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     queue = TickerQueue()
     dedup = DedupCache()
     state = AggregatorState()
@@ -21,11 +23,14 @@ async def lifespan(app: FastAPI):
     init_dispatch_worker(worker)
     drain_task = asyncio.create_task(ticker_drain_loop(queue))
     worker_task = asyncio.create_task(worker.run())
-    yield
-    drain_task.cancel()
-    worker_task.cancel()
-    await asyncio.gather(drain_task, worker_task, return_exceptions=True)
+    try:
+        yield
+    finally:
+        drain_task.cancel()
+        worker_task.cancel()
+        await asyncio.gather(drain_task, worker_task, return_exceptions=True)
 
 
 app = FastAPI(title="HousePanel Aggregator", lifespan=lifespan)
+app.add_middleware(BodyLimitMiddleware)
 app.include_router(router)

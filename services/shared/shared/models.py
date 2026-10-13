@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any, Annotated
+from pydantic import Field
 
 
 class EventType(str, Enum):
@@ -37,7 +39,7 @@ class UnifiedEvent:
     timestamp: datetime
     priority: int
     ttl_seconds: int
-    payload: dict
+    payload: dict[str, Any]
     dedup_hash: str | None = None
 
 
@@ -81,12 +83,12 @@ class CalendarState:
 @dataclass
 class InternalEventRequest:
     """HTTP body for POST /internal/events on the aggregator."""
-    source: str
-    event_type: str
-    timestamp: str           # ISO8601 string over the wire
-    priority: int
-    payload: dict
-    ttl_seconds: int = 60
+    source: Annotated[str, Field(max_length=128)]
+    event_type: Annotated[str, Field(max_length=64)]
+    timestamp: Annotated[str, Field(max_length=64)]
+    priority: Annotated[int, Field(ge=0, le=99)]
+    payload: dict[str, Any]
+    ttl_seconds: Annotated[int, Field(ge=1, le=3600)] = 60
 
 
 @dataclass
@@ -94,5 +96,5 @@ class CommandRequest:
     """HTTP body for POST /internal/commands on the transport adapter."""
     cmd: str                 # DOORBELL, TICKER-APPEND, WEATHER-UPDATE, CALENDAR-UPDATE
     priority: int
-    payload: dict
+    payload: dict[str, Any]
     event_id: str

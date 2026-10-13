@@ -96,3 +96,40 @@ async def test_poll_weather_both_fail_state_retained() -> None:
 
     assert state.last_weather is prior_weather
     mock_push.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [TypeError("bad shape"), ValueError("bad value"), KeyError("missing"), IndexError("empty"), AttributeError("bad shape")])
+async def test_invalid_primary_payload_uses_fallback(error):
+    primary = _make_adapter("primary", error)
+    weather = _make_weather("fallback")
+    fallback = _make_adapter("fallback", weather)
+    state = WeatherPollerState()
+    with patch("weather_poller.poller.push_weather_update", new_callable=AsyncMock):
+        await poll_weather(primary, fallback, state, "http://unused", MagicMock())
+    fallback.fetch_current.assert_called_once()
+    assert state.last_weather is weather
+
+
+@pytest.mark.asyncio
+async def test_invalid_fallback_payload_records_failure():
+    from weather_poller.poller import metrics
+    primary = _make_adapter("primary", TypeError("bad shape"))
+    fallback = _make_adapter("fallback", ValueError("bad value"))
+    before = metrics.poll_failure_total
+    with patch("weather_poller.poller.push_weather_update", new_callable=AsyncMock) as push:
+        await poll_weather(primary, fallback, WeatherPollerState(), "http://unused", MagicMock())
+    assert metrics.poll_failure_total == before + 1
+    push.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_non_finite_primary_temperature_uses_fallback():
+    bad = _make_weather("primary")
+    bad.temperature_c = float("nan")
+    good = _make_weather("fallback")
+    state = WeatherPollerState()
+    with patch("weather_poller.poller.push_weather_update", new_callable=AsyncMock):
+        await poll_weather(_make_adapter("primary", bad), _make_adapter("fallback", good),
+            state, "http://unused", MagicMock())
+    assert state.last_weather is good

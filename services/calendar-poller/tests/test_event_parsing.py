@@ -9,6 +9,7 @@ the panel would show one entry for a weekly meeting instead of this week's.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from unittest.mock import MagicMock, patch
 
 from calendar_poller.calendar_client import GoogleCalendarClient
@@ -26,9 +27,9 @@ def _client() -> GoogleCalendarClient:
 def _respond(items: list[dict]) -> MagicMock:
     resp = MagicMock()
     resp.is_success = True
-    resp.json = MagicMock(return_value={"items": items})
+    resp.iter_bytes.return_value = [json.dumps({"items": items}).encode()]
     http = MagicMock()
-    http.get = MagicMock(return_value=resp)
+    http.stream.return_value.__enter__.return_value = resp
     http.__enter__ = MagicMock(return_value=http)
     http.__exit__ = MagicMock(return_value=False)
     return http
@@ -72,7 +73,7 @@ def test_date_only_event_is_all_day():
 def test_recurring_events_are_requested_as_instances():
     """singleEvents=True expands a recurring series into individual dates."""
     _, http = _fetch([])
-    params = http.get.call_args.kwargs["params"]
+    params = http.stream.call_args.kwargs["params"]
 
     assert params["singleEvents"] == "True"
     assert params["orderBy"] == "startTime"
@@ -80,7 +81,7 @@ def test_recurring_events_are_requested_as_instances():
 
 def test_time_window_is_passed_through():
     _, http = _fetch([])
-    params = http.get.call_args.kwargs["params"]
+    params = http.stream.call_args.kwargs["params"]
 
     assert params["timeMin"] == "2026-08-01T00:00:00Z"
     assert params["timeMax"] == "2026-08-31T00:00:00Z"

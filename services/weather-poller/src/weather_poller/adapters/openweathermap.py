@@ -9,6 +9,7 @@ _PACIFIC = ZoneInfo("America/Los_Angeles")
 
 from shared.models import WeatherConditions, ForecastDay
 from weather_poller.adapter import WeatherAPIError
+from shared.contracts import JsonObject
 
 
 class OpenWeatherMapAdapter:
@@ -83,7 +84,7 @@ class OpenWeatherMapAdapter:
         today = datetime.now(_PACIFIC).date()
 
         # Group 3-hour intervals by Pacific date; skip today
-        day_data: dict[date, dict] = {}
+        day_data: dict[date, JsonObject] = {}
         for item in data.get("list", []):
             item_dt = datetime.fromtimestamp(item["dt"], tz=_PACIFIC)
             d = item_dt.date()

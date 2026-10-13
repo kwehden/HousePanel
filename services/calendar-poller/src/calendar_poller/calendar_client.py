@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import datetime, timezone
 
 import google.auth
@@ -66,10 +67,18 @@ class GoogleCalendarClient:
         self, calendar_id: str, params: dict[str, str], headers: dict[str, str]
     ) -> list[CalendarEvent]:
         url = f"{_CALENDAR_API_BASE}/{calendar_id}/events"
-        response = self._http_client.get(url, params=params, headers=headers)
-        if not response.is_success:
-            raise CalendarAPIError(response.status_code, response.text[:200])
-        payload: object = response.json()
+        # Buffered HTTPX responses participate in response/stream cycles. Read
+        # into a local bounded buffer so bodies are not retained until cyclic GC.
+        with self._http_client.stream("GET", url, params=params, headers=headers) as response:
+            if not response.is_success:
+                preview = next(response.iter_bytes(chunk_size=200), b"")[:200]
+                raise CalendarAPIError(response.status_code, preview.decode(errors="replace"))
+            raw = bytearray()
+            for chunk in response.iter_bytes(chunk_size=16384):
+                if len(raw) + len(chunk) > 1024 * 1024:
+                    raise CalendarPayloadError("Calendar response exceeds 1 MiB")
+                raw.extend(chunk)
+            payload: object = json.loads(raw)
         if not isinstance(payload, dict):
             raise CalendarPayloadError("Expected a calendar response object")
         items = payload.get("items", [])
@@ -100,6 +109,7 @@ class GoogleCalendarClient:
             "timeMax": _utc_timestamp(time_max),
             "singleEvents": "True",
             "orderBy": "startTime",
+            "fields": "items(id,summary,start,end),nextPageToken",
         }
         headers = {"Authorization": f"Bearer {self._credentials.token}"}
         all_events: list[CalendarEvent] = []

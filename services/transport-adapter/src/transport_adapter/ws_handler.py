@@ -18,6 +18,8 @@ async def _read_loop(websocket: WebSocket) -> None:
             frame = json.loads(raw)
         except json.JSONDecodeError:
             continue
+        if not isinstance(frame, dict):
+            continue
         cmd = frame.get("cmd")
         if cmd == "HELLO":
             await handle_hello_frame(frame)
@@ -33,6 +35,12 @@ async def _read_loop(websocket: WebSocket) -> None:
 
 async def giga_websocket_handler(websocket: WebSocket) -> None:
     await websocket.accept()
+    previous = state.active_websocket
+    if previous is not None and previous is not websocket:
+        try:
+            await previous.close(code=1012)
+        except (RuntimeError, WebSocketDisconnect):
+            pass
     state.giga_connected = True
     state.active_websocket = websocket
     log_event(logger, "giga_connected")

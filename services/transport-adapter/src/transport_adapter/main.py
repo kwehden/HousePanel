@@ -6,8 +6,10 @@ from datetime import datetime
 from typing import AsyncGenerator
 from zoneinfo import ZoneInfo
 from fastapi import FastAPI
+from shared.body_limit import BodyLimitMiddleware
 from transport_adapter import state
 from transport_adapter.routes import router
+from transport_adapter.state_refresh import close_poller_refresh
 from shared.logging import make_logger, log_event
 
 logger = make_logger("transport-adapter")
@@ -20,7 +22,9 @@ async def _hourly_time_sync() -> None:
         if not state.giga_connected:
             continue
         now_pacific = datetime.now(_PACIFIC)
-        utc_offset_min = int(now_pacific.utcoffset().total_seconds() / 60)
+        offset = now_pacific.utcoffset()
+        assert offset is not None
+        utc_offset_min = int(offset.total_seconds() / 60)
         try:
             state.normal_queue.put_nowait({
                 "cmd": "TIME",
@@ -35,10 +39,14 @@ async def _hourly_time_sync() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     task = asyncio.create_task(_hourly_time_sync())
-    yield
-    task.cancel()
-    await asyncio.gather(task, return_exceptions=True)
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await close_poller_refresh()
 
 
 app = FastAPI(title="transport-adapter", lifespan=lifespan)
+app.add_middleware(BodyLimitMiddleware)
 app.include_router(router)

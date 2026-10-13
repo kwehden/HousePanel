@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse, Response
 from shared.models import InternalEventRequest
 from shared.logging import make_logger, log_event
 from shared.metrics import CONTENT_TYPE, Metric, render
+from shared.contracts import JsonObject
+from fastapi import HTTPException
 from .queue import TickerQueue
 from .dedup import DedupCache
 from .state import AggregatorState
@@ -22,6 +24,12 @@ _dedup: DedupCache | None = None
 _state: AggregatorState | None = None
 
 
+def _components() -> tuple[TickerQueue, DedupCache, AggregatorState]:
+    if _queue is None or _dedup is None or _state is None:
+        raise HTTPException(status_code=503, detail="Aggregator is not initialized")
+    return _queue, _dedup, _state
+
+
 def init_singletons(queue: TickerQueue, dedup: DedupCache, state: AggregatorState) -> None:
     global _queue, _dedup, _state
     _queue, _dedup, _state = queue, dedup, state
@@ -29,15 +37,17 @@ def init_singletons(queue: TickerQueue, dedup: DedupCache, state: AggregatorStat
 
 @router.post("/internal/events", status_code=202)
 async def internal_events(req: InternalEventRequest) -> JSONResponse:
-    await route_event(req, _state, _queue, _dedup)
+    queue, dedup, state = _components()
+    await route_event(req, state, queue, dedup)
     return JSONResponse(status_code=202, content={"accepted": True})
 
 
 @router.get("/internal/state")
-async def internal_state() -> dict:
-    ticker_snapshot = await _queue.snapshot()
+async def internal_state() -> JsonObject:
+    queue, _, state = _components()
+    ticker_snapshot = await queue.snapshot()
     return {
-        **_state.to_dict(),
+        **state.to_dict(),
         "ticker_queue": [
             {
                 "event_id": e.event_id,
@@ -52,8 +62,9 @@ async def internal_state() -> dict:
 
 
 @router.get("/internal/health")
-async def internal_health() -> dict:
-    snapshot = await _queue.snapshot()
+async def internal_health() -> JsonObject:
+    queue, _, _ = _components()
+    snapshot = await queue.snapshot()
     # queue_depth is the ticker queue.  The dispatch queue is the one that
     # actually carries panel updates, so report it too — an outage that jams
     # dispatch leaves the ticker queue at 0 and is otherwise invisible here.
@@ -74,7 +85,8 @@ async def metrics() -> Response:
     with the transport-adapter's panel_connected gauge it asserts that panel
     updates are actually being delivered, which pod liveness cannot.
     """
-    snapshot = await _queue.snapshot()
+    queue, _, _ = _components()
+    snapshot = await queue.snapshot()
     worker = get_dispatch_worker()
     out: list[Metric] = [
         Metric(
@@ -164,5 +176,5 @@ async def internal_refresh() -> JSONResponse:
 
 
 @router.get("/healthz")
-async def healthz() -> dict:
+async def healthz() -> dict[str, str]:
     return {"status": "ok"}
