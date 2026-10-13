@@ -106,3 +106,9 @@ def test_calendar_frames_fit_encoded_byte_budget(text):
 def test_large_non_text_unknown_frame_is_rejected():
     with pytest.raises(ValueError, match="byte budget"):
         decompose_command("UNKNOWN", {"data": list(range(200))})
+
+
+def test_ticker_text_respects_firmware_utf8_buffer():
+    frame = decompose_command("TICKER-APPEND", {"text": "\U0001f600" * 200})[0]
+    assert len(frame["text"].encode()) <= 127
+    assert len(encode_frame(frame).encode()) < 200

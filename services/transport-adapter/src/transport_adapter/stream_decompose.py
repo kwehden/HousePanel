@@ -16,6 +16,8 @@ def encode_frame(frame: JsonObject) -> str:
 
 def fit_frame(frame: JsonObject) -> JsonObject:
     result = dict(frame)
+    if result.get("cmd") == "TICKER-APPEND" and isinstance(result.get("text"), str):
+        result["text"] = _utf8_prefix(result["text"], 127)
     while len(encode_frame(result).encode()) >= MAX_FRAME_BYTES:
         fields = [key for key, value in result.items() if key != "cmd" and isinstance(value, str) and value]
         if not fields:
