@@ -37,8 +37,11 @@ async def probe(args):
     with patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "one,two", "AGGREGATOR_URL": downstream_url}):
         import calendar_poller.main as module
     original_add_job = AsyncIOScheduler.add_job
+    scheduler = None
 
     def fast_interval(self, *job_args, **kwargs):
+        nonlocal scheduler
+        scheduler = self
         kwargs["seconds"] = 0.025
         return original_add_job(self, *job_args, **kwargs)
 
@@ -63,6 +66,22 @@ async def probe(args):
                     elif isinstance(value, httpx.AsyncClient):
                         value._transport._pool._keepalive_expiry = 0
                 url = f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
+
+                async def measure():
+                    # Compare idle baselines, not random in-flight TLS and ASGI
+                    # tasks. Pausing jobs does not cancel the owned poll.
+                    scheduler.pause()
+                    if runner._task is not None:
+                        await asyncio.shield(runner._task)
+                    for path in ("/metrics", "/healthz"):
+                        response = await scrape.get(url + path)
+                        response.raise_for_status()
+                    await asyncio.sleep(0.02)
+                    cycle = fixture.metrics.poll_success_total
+                    fixture.sample(cycle, "running")
+                    scheduler.resume()
+                    return cycle
+
                 next_sample = args.warmup
                 next_refresh = 12
                 while fixture.metrics.poll_success_total < args.cycles:
@@ -74,12 +93,9 @@ async def probe(args):
                         credentials.token = None
                         next_refresh = cycle + 12
                     if cycle >= next_sample:
-                        fixture.sample(cycle, "running")
-                        for path in ("/metrics", "/healthz"):
-                            response = await scrape.get(url + path)
-                            response.raise_for_status()
+                        cycle = await measure()
                         next_sample = cycle + args.sample_every
-                fixture.sample(fixture.metrics.poll_success_total, "running")
+                await measure()
                 server.should_exit = True
                 await task
                 assert fixture.metrics.poll_success_total == fixture.metrics.push_success_total
