@@ -10,6 +10,8 @@ normal_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=50)
 giga_connected: bool = False
 ota_paused: bool = False
 active_websocket: WebSocket | None = None
+active_websocket_task: asyncio.Task[None] | None = None
+websocket_handover_lock = asyncio.Lock()
 
 frames_sent_total: int = 0
 # Wall-clock so Prometheus can compare against time(); None until the first
