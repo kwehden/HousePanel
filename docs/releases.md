@@ -35,6 +35,7 @@ changes separately if they are not included in the service image bundle.
 4. Check `~/.local/state/housepanel-release/deployed.json`, the service journal,
    and the associated GitHub deployment status. Require a successful status for
    the exact deployed SHA. A failure marker must be investigated before retrying.
+   Pin the deployment record using the next section before preparing evidence.
 5. Capture a post-deployment memory baseline after all services are ready and
    every poller has delivered. Include UTC time, pod UID, container ID, image
    digest, start time, restart count, process RSS, cgroup RSS/working set, thread
@@ -44,42 +45,85 @@ changes separately if they are not included in the service image bundle.
 The deployer's checkout can be on a different branch. Identify the release by
 the verified deployment SHA, never by the checkout's `HEAD`.
 
-## Publish the Git release
+## Pin the deployment
 
-Run these checks on the machine that runs the release agent. The version below
-is an example; choose the next unused version and review the release notes.
+On the machine that runs the release agent, choose the next unused version and
+capture the intended deployment **before** collecting the baseline or drafting
+notes. Read the live marker once: the agent replaces it after each deployment.
+The version below is an example. Review the captured SHA and deployment ID.
 
 ```sh
 set -eu
 REPO=kwehden/HousePanel
 STATE="$HOME/.local/state/housepanel-release/deployed.json"
-SHA=$(jq -er .sha "$STATE")
-RUN=$(jq -er .run_id "$STATE")
-DEPLOYMENT=$(jq -er .deployment_id "$STATE")
-VERSION=v0.1.0
-
-test "$(jq -r .status_reported "$STATE")" = true
-test "$(gh run view "$RUN" --repo "$REPO" --json headSha --jq .headSha)" = "$SHA"
-test "$(gh run view "$RUN" --repo "$REPO" --json conclusion --jq .conclusion)" = success
-test "$(gh api "repos/$REPO/deployments/$DEPLOYMENT" --jq .sha)" = "$SHA"
-test "$(gh api "repos/$REPO/deployments/$DEPLOYMENT/statuses" --jq '.[0].state')" = success
-
-git fetch origin main --tags
-git merge-base --is-ancestor "$SHA" origin/main
-git tag -a "$VERSION" "$SHA" -m "HousePanel $VERSION; verified deployment $DEPLOYMENT"
-git push origin "refs/tags/$VERSION"
-gh release create "$VERSION" --repo "$REPO" --verify-tag \
-  --title "HousePanel $VERSION" --notes-file release-notes.md
-gh release view "$VERSION" --repo "$REPO"
+VERSION=${VERSION:-v0.1.0}
+RELEASE_DIR="build/releases/$VERSION"
+RECORD="$RELEASE_DIR/deployment.json"
+mkdir -p "$RELEASE_DIR"
+# Refuse to overwrite an existing release record.
+(set -C; jq -e 'select(.status_reported == true)' "$STATE" > "$RECORD")
+jq '{sha, run_id, deployment_id, time}' "$RECORD"
 ```
 
-Prepare `release-notes.md` before running the publication commands. Include:
+Keep this record unchanged. If capture fails, inspect the marker and any partial
+record before retrying. Do not silently replace a record whose evidence is
+already being prepared.
+
+Collect `baseline.json` and draft `release-notes.md` in this version's directory.
+Both must describe the pinned SHA and image digests. The baseline must contain
+the SHA in `expected_commit` (or `sha`). If production changes before baseline
+collection finishes, stop and reconcile the pod/image identities; do not label
+measurements from the new deployment as evidence for the old one.
+
+Include these details in the notes:
 
 - User-visible changes, fixed defects, and breaking changes, linked to PRs.
 - Exact commit, successful CI run, and successful GitHub deployment links.
 - All six deployed image digests and any changes outside the image bundle.
 - Baseline measurements, their timestamp, and the planned 24-hour comparison.
 - Known limitations, rollback target, and operational follow-up.
+
+## Publish the Git release
+
+After reviewing the evidence, use only the pinned record. Do not select a new
+SHA from the live `deployed.json`. A later deployment can supersede this one
+without changing the release being recorded.
+
+```sh
+set -eu
+REPO=kwehden/HousePanel
+VERSION=${VERSION:-v0.1.0}
+RELEASE_DIR="build/releases/$VERSION"
+RECORD="$RELEASE_DIR/deployment.json"
+SHA=$(jq -er .sha "$RECORD")
+RUN=$(jq -er .run_id "$RECORD")
+DEPLOYMENT=$(jq -er .deployment_id "$RECORD")
+
+test "$(jq -r .status_reported "$RECORD")" = true
+test -s "$RELEASE_DIR/release-notes.md"
+test "$(jq -er '.expected_commit // .sha' "$RELEASE_DIR/baseline.json")" = "$SHA"
+test "$(gh run view "$RUN" --repo "$REPO" --json headSha --jq .headSha)" = "$SHA"
+test "$(gh run view "$RUN" --repo "$REPO" --json conclusion --jq .conclusion)" = success
+test "$(gh api "repos/$REPO/deployments/$DEPLOYMENT" --jq .sha)" = "$SHA"
+# The API returns newest-first pages. Preserve that order across all pages.
+STATUSES=$(gh api --paginate "repos/$REPO/deployments/$DEPLOYMENT/statuses?per_page=100")
+printf '%s\n' "$STATUSES" | jq -se '
+  add | (.[0].state == "success" or .[0].state == "inactive")
+        and any(.[]; .state == "success")' > /dev/null
+
+git fetch origin main --tags
+git merge-base --is-ancestor "$SHA" origin/main
+git tag -a "$VERSION" "$SHA" -m "HousePanel $VERSION; verified deployment $DEPLOYMENT"
+git push origin "refs/tags/$VERSION"
+gh release create "$VERSION" --repo "$REPO" --verify-tag \
+  --title "HousePanel $VERSION" --notes-file "$RELEASE_DIR/release-notes.md"
+gh release view "$VERSION" --repo "$REPO"
+```
+
+An `inactive` deployment is eligible only with a successful status in its
+history. A current failure, error, or unfinished deployment blocks publication.
+GitHub retains previous statuses for 90 days; missing historical success must
+be investigated, not bypassed. See the [deployment status API](https://docs.github.com/en/rest/deployments/statuses).
 
 Attach a sanitized machine-readable baseline and image manifest as GitHub
 release assets with `gh release upload`. Never attach credentials, private
