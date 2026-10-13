@@ -1,7 +1,9 @@
 from __future__ import annotations
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, WebSocket, HTTPException
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Any
+from shared.contracts import validate_payload
 from shared.metrics import CONTENT_TYPE, Metric, render
 from transport_adapter import state
 from transport_adapter.ws_handler import giga_websocket_handler
@@ -11,31 +13,31 @@ router = APIRouter()
 
 
 class CommandRequest(BaseModel):
-    cmd: str
-    priority: int
-    payload: dict
-    event_id: str
+    cmd: str = Field(pattern=r"^[A-Z][A-Z0-9_-]{0,31}$")
+    priority: int = Field(ge=0, le=99)
+    payload: dict[str, Any]
+    event_id: str = Field(max_length=128)
 
 
 @router.post("/internal/commands", status_code=202)
 async def post_command(request: CommandRequest) -> JSONResponse:
-    items = decompose_command(request.cmd, request.payload)
+    try:
+        payload = validate_payload(request.cmd.lower(), request.payload)
+        items = decompose_command(request.cmd, payload)
+    except (ValueError, TypeError, RecursionError):
+        raise HTTPException(status_code=422, detail="Invalid or oversized command payload") from None
 
-    if request.priority == 99:
-        for item in items:
-            state.interrupt_queue.put_nowait(item)
-        return JSONResponse(status_code=202, content={"accepted": True})
-
-    if state.normal_queue.qsize() + len(items) > state.normal_queue.maxsize:
-        return JSONResponse(status_code=503, content={"error": "normal queue full"})
+    queue = state.interrupt_queue if request.priority == 99 else state.normal_queue
+    if queue.qsize() + len(items) > queue.maxsize:
+        return JSONResponse(status_code=503, content={"error": "interrupt queue full" if request.priority == 99 else "normal queue full"})
 
     for item in items:
-        state.normal_queue.put_nowait(item)
+        queue.put_nowait(item)
     return JSONResponse(status_code=202, content={"accepted": True})
 
 
 @router.get("/internal/health")
-async def internal_health() -> dict:
+async def internal_health() -> dict[str, str | bool | int]:
     return {
         "status": "ok",
         "giga_connected": state.giga_connected,
@@ -91,7 +93,7 @@ async def metrics() -> Response:
 
 
 @router.get("/healthz")
-async def healthz() -> dict:
+async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 

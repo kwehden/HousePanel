@@ -20,6 +20,7 @@ import tracemalloc
 from unittest.mock import patch
 
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 import httpx
 
 import calendar_poller.calendar_client as calendar_module
@@ -82,10 +83,17 @@ async def probe(args):
     downstream = await asyncio.start_server(respond, "127.0.0.1", 0)
     upstream_url = f"{scheme}://127.0.0.1:{upstream.sockets[0].getsockname()[1]}"
     downstream_url = f"http://127.0.0.1:{downstream.sockets[0].getsockname()[1]}"
-    credentials = Credentials(
-        token="synthetic", refresh_token="synthetic", token_uri=f"{upstream_url}/token",
-        client_id="synthetic", client_secret="synthetic",
-    )
+    if args.credentials == "service-account":
+        credentials = service_account.Credentials.from_service_account_info({
+            "type": "service_account", "client_email": "synthetic@example.invalid",
+            "private_key_id": "synthetic", "private_key": Path(args.key).read_text(),
+            "token_uri": f"{upstream_url}/token",
+        }, scopes=calendar_module.SCOPES)
+    else:
+        credentials = Credentials(
+            token="synthetic", refresh_token="synthetic", token_uri=f"{upstream_url}/token",
+            client_id="synthetic", client_secret="synthetic",
+        )
     calendar_module._CALENDAR_API_BASE = f"{upstream_url}/calendars"
     with patch.object(calendar_module.google.auth, "default", return_value=(credentials, "test")), \
          patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "one,two"}):
@@ -111,14 +119,16 @@ async def probe(args):
                 else:
                     await runner.run()
                 if cycle == args.warmup:
-                    gc.collect()
+                    if args.collect_gc:
+                        gc.collect()
                     sample(cycle, "baseline")
                     if args.trace:
                         baseline = tracemalloc.take_snapshot()
                 elif cycle % args.sample_every == 0:
-                    sample(cycle, "before_gc")
-                    gc.collect()
-                    sample(cycle, "after_gc")
+                    sample(cycle, "running")
+                    if args.collect_gc:
+                        gc.collect()
+                        sample(cycle, "after_gc")
             if args.trace and baseline:
                 snapshot = tracemalloc.take_snapshot()
                 for stat in snapshot.compare_to(baseline, "lineno")[:15]:
@@ -140,11 +150,13 @@ async def probe(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cycles", type=int, default=1000)
-    parser.add_argument("--warmup", type=int, default=100)
+    parser.add_argument("--warmup", type=int, default=12)
     parser.add_argument("--sample-every", type=int, default=250)
     parser.add_argument("--refresh-every", type=int, default=12)
     parser.add_argument("--expire-connections", action="store_true")
     parser.add_argument("--trace", action="store_true")
+    parser.add_argument("--collect-gc", action="store_true", help="Diagnostic only; CI measures without forced GC")
+    parser.add_argument("--credentials", choices=("service-account", "user-oauth"), default="service-account")
     parser.add_argument("--mode", choices=("poll", "auth"), default="poll")
     parser.add_argument("--cert")
     parser.add_argument("--key")
@@ -156,6 +168,8 @@ if __name__ == "__main__":
         parser.error("refresh-every must be nonnegative (0 disables forced refresh)")
     if bool(args.cert) != bool(args.key):
         parser.error("cert and key must be supplied together")
+    if args.credentials == "service-account" and not args.key:
+        parser.error("service-account mode requires a synthetic RSA --key (use --credentials user-oauth for HTTP-only probes)")
     logging.disable(logging.CRITICAL)
     if args.native_output:
         import memray

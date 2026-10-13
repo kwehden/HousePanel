@@ -33,7 +33,7 @@ def build(service: str, sha: str, cycles: int) -> None:
     test_image = image + "-test"
     run("docker", "build", "--build-arg", f"BASE_IMAGE={image}", "-f", "tools/Dockerfile.test", "-t", test_image, ".")
     run(*container[:-1], test_image, "-m", "pytest", "/tests", "-q", "--asyncio-mode=auto", "-p", "no:cacheprovider")
-    probe = {"sysmon-poller": "memory_probe.py", "calendar-poller": "calendar_memory_probe.py",
+    probe = {"sysmon-poller": "memory_probe.py", "calendar-poller": "calendar_runtime_probe.py",
              "weather-poller": "weather_memory_probe.py"}.get(service)
     if probe:
         probe_args = ["--cycles", str(cycles)]
@@ -44,13 +44,13 @@ def build(service: str, sha: str, cycles: int) -> None:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             # Add the synthetic TLS files before the image argument.
             container = (*container[:-1], "-v", f"{output}:/tls:ro", container[-1])
-            probe_args += ["--cert", "/tls/cert.pem", "--key", "/tls/key.pem", "--warmup", "500",
-                           "--sample-every", "500", "--expire-connections"]
+            probe_args += ["--cert", "/tls/cert.pem", "--key", "/tls/key.pem", "--warmup", "12",
+                           "--sample-every", "250"]
         log = output / "memory.jsonl"
         with log.open("w") as stream:
             run(*container, f"/tools/{probe}", *probe_args, stdout=stream)
         samples = [json.loads(line) for line in log.read_text().splitlines() if line.startswith("{")]
-        print(json.dumps({"service": service, "memory": assess(samples)}), flush=True)
+        print(json.dumps({"service": service, "memory": assess(samples, warmup=12 if service == "calendar-poller" else 500)}), flush=True)
     archive = output / f"{service}.tar.gz"
     # Save and compress without loading the image into Python memory.
     with archive.open("wb") as stream:

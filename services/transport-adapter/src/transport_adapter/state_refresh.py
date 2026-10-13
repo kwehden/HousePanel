@@ -5,22 +5,39 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
 from shared.logging import make_logger, log_event
+from shared.polling import PollRunner
 from transport_adapter import state
 from transport_adapter.stream_decompose import decompose_command
 from uuid import uuid4
+from shared.contracts import JsonObject
 
 _PACIFIC = ZoneInfo("America/Los_Angeles")
 
 logger = make_logger("transport-adapter")
+_refresh_runner: PollRunner | None = None
 
 
-async def handle_hello_frame(frame: dict) -> None:
+def request_poller_refresh() -> None:
+    global _refresh_runner
+    if _refresh_runner is None:
+        _refresh_runner = PollRunner(_trigger_poller_refresh, logger)
+    _refresh_runner.request()
+
+
+async def close_poller_refresh() -> None:
+    global _refresh_runner
+    if _refresh_runner is not None:
+        await _refresh_runner.close()
+        _refresh_runner = None
+
+
+async def handle_hello_frame(frame: JsonObject) -> None:
     while True:
         try:
             state.normal_queue.get_nowait()
         except asyncio.QueueEmpty:
             break
-    asyncio.create_task(_trigger_poller_refresh())
+    request_poller_refresh()
     await _refresh_state(triggered_by="hello")
 
 
@@ -39,7 +56,9 @@ async def handle_post_ota_refresh() -> None:
 
 async def _refresh_state(triggered_by: str) -> None:
     now_pacific = datetime.now(_PACIFIC)
-    utc_offset_min = int(now_pacific.utcoffset().total_seconds() / 60)
+    offset = now_pacific.utcoffset()
+    assert offset is not None
+    utc_offset_min = int(offset.total_seconds() / 60)
     await state.normal_queue.put({"cmd": "TIME", "epoch": int(_time.time()), "utc_offset_min": utc_offset_min})
 
     try:

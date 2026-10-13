@@ -10,7 +10,7 @@ class PollRunner:
     def __init__(self, poll: Callable[[], Awaitable[None]], logger: logging.Logger):
         self._poll = poll
         self._logger = logger
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._closed = False
 
     def request(self) -> None:

@@ -136,3 +136,31 @@ async def test_doorbell_bypasses_the_full_normal_queue():
 
     assert resp.status_code == 202
     assert state.interrupt_queue.qsize() >= 1
+
+
+@pytest.mark.asyncio
+async def test_full_interrupt_queue_returns_backpressure():
+    for _ in range(state.interrupt_queue.maxsize):
+        state.interrupt_queue.put_nowait({"cmd": "FILLER"})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/internal/commands", json={
+            "cmd": "DOORBELL", "priority": 99, "payload": {}, "event_id": "full"})
+    assert response.status_code == 503
+    assert state.interrupt_queue.qsize() == state.interrupt_queue.maxsize
+
+
+@pytest.mark.asyncio
+async def test_invalid_calendar_payload_is_rejected_without_queueing():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/internal/commands", json={
+            "cmd": "CALENDAR-UPDATE", "priority": 5, "payload": {"events": [42]}, "event_id": "bad"})
+    assert response.status_code == 422
+    assert state.normal_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_oversized_request_is_rejected_before_parsing():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/internal/commands", content=b"x" * (512 * 1024 + 1))
+    assert response.status_code == 413
+    assert state.normal_queue.empty()

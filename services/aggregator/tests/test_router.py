@@ -72,3 +72,12 @@ async def test_calendar_update_state(mock_dispatch):
     await route_event(_req("calendar-update", {"events": []}), s, q, d)
     assert s.last_calendar is not None
     mock_dispatch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_invalid_calendar_payload_does_not_replace_existing_state():
+    q, d, s = TickerQueue(), DedupCache(), AggregatorState()
+    with pytest.raises(HTTPException) as exc:
+        await route_event(_req("calendar-update", {"events": [42]}), s, q, d)
+    assert exc.value.status_code == 422
+    assert s.last_calendar is None

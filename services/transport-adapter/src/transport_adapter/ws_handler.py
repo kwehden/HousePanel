@@ -18,6 +18,8 @@ async def _read_loop(websocket: WebSocket) -> None:
             frame = json.loads(raw)
         except json.JSONDecodeError:
             continue
+        if not isinstance(frame, dict):
+            continue
         cmd = frame.get("cmd")
         if cmd == "HELLO":
             await handle_hello_frame(frame)
@@ -33,10 +35,38 @@ async def _read_loop(websocket: WebSocket) -> None:
 
 async def giga_websocket_handler(websocket: WebSocket) -> None:
     await websocket.accept()
-    state.giga_connected = True
-    state.active_websocket = websocket
-    log_event(logger, "giga_connected")
+    async with state.websocket_handover_lock:
+        previous = state.active_websocket
+        previous_task = state.active_websocket_task
+        # Stop both queue consumers and refresh producers before the new HELLO.
+        # Closing a socket alone does not terminate its pending receive/get calls.
+        if previous_task is not None:
+            previous_task.cancel()
+            await asyncio.gather(previous_task, return_exceptions=True)
+        if previous is not None and previous is not websocket:
+            try:
+                await previous.close(code=1012)
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+        state.giga_connected = True
+        state.active_websocket = websocket
+        task = asyncio.create_task(_run_connection(websocket))
+        state.active_websocket_task = task
+        log_event(logger, "giga_connected")
 
+    # Supersession cancels the session, not the ASGI handler. External handler
+    # cancellation still propagates through gather and stops its session.
+    try:
+        await asyncio.gather(task, return_exceptions=True)
+    finally:
+        # A session cancelled before its first step cannot run its own finally.
+        if state.active_websocket_task is task:
+            state.giga_connected = False
+            state.active_websocket = None
+            state.active_websocket_task = None
+
+
+async def _run_connection(websocket: WebSocket) -> None:
     try:
         async with asyncio.TaskGroup() as tg:
             tg.create_task(_read_loop(websocket))
@@ -47,11 +77,9 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
         log_event(logger, "giga_ws_error", level="warning",
                   errors=[type(e).__name__ for e in eg.exceptions])
     finally:
-        # A newer connection may already have replaced this one (rapid client
-        # reconnects can overlap this handler's cleanup with the next accept()).
-        # Only clear state if we're still the connection of record — otherwise
-        # this stale cleanup would clobber the newer, still-live connection.
+        # Cleanup must never clear a replacement's ownership.
         if state.active_websocket is websocket:
             state.giga_connected = False
             state.active_websocket = None
+            state.active_websocket_task = None
         log_event(logger, "giga_disconnected")

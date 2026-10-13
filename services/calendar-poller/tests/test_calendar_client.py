@@ -51,12 +51,12 @@ def test_fetch_events_parses_response_correctly() -> None:
     mock_creds = _mock_credentials(valid=True)
     mock_response = MagicMock()
     mock_response.is_success = True
-    mock_response.json.return_value = _FAKE_CALENDAR_RESPONSE
+    mock_response.iter_bytes.return_value = [json.dumps(_FAKE_CALENDAR_RESPONSE).encode()]
 
     mock_http_instance = MagicMock()
     mock_http_instance.__enter__ = MagicMock(return_value=mock_http_instance)
     mock_http_instance.__exit__ = MagicMock(return_value=False)
-    mock_http_instance.get = MagicMock(return_value=mock_response)
+    mock_http_instance.stream.return_value.__enter__.return_value = mock_response
 
     with patch("google.auth.default", return_value=(mock_creds, "test-project")), \
          patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "test@group.calendar.google.com"}), \
@@ -79,6 +79,8 @@ def test_fetch_events_parses_response_correctly() -> None:
     assert all_day_event.event_id == "evt-002"
     assert all_day_event.all_day is True
     assert all_day_event.start == "2026-05-21"
+    params = mock_http_instance.stream.call_args.kwargs["params"]
+    assert params["fields"] == "items(id,summary,start,end),nextPageToken"
 
 
 def test_event_summary_not_logged(capsys: pytest.CaptureFixture) -> None:
@@ -86,12 +88,12 @@ def test_event_summary_not_logged(capsys: pytest.CaptureFixture) -> None:
     mock_creds = _mock_credentials(valid=True)
     mock_response = MagicMock()
     mock_response.is_success = True
-    mock_response.json.return_value = _FAKE_CALENDAR_RESPONSE
+    mock_response.iter_bytes.return_value = [json.dumps(_FAKE_CALENDAR_RESPONSE).encode()]
 
     mock_http_instance = MagicMock()
     mock_http_instance.__enter__ = MagicMock(return_value=mock_http_instance)
     mock_http_instance.__exit__ = MagicMock(return_value=False)
-    mock_http_instance.get = MagicMock(return_value=mock_response)
+    mock_http_instance.stream.return_value.__enter__.return_value = mock_response
 
     with patch("google.auth.default", return_value=(mock_creds, "test-project")), \
          patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "test@group.calendar.google.com"}), \
@@ -120,8 +122,8 @@ def test_http_and_auth_sessions_reused_and_closed():
     from datetime import datetime, timezone
 
     http = MagicMock()
-    http.get.return_value.is_success = True
-    http.get.return_value.json.return_value = {"items": []}
+    http.stream.return_value.__enter__.return_value.is_success = True
+    http.stream.return_value.__enter__.return_value.iter_bytes.return_value = [b'{"items":[]}']
     creds = _mock_credentials(valid=False)
     with patch("google.auth.default", return_value=(creds, "test")), \
          patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "one,two"}), \
@@ -133,7 +135,7 @@ def test_http_and_auth_sessions_reused_and_closed():
         for _ in range(100):
             client.fetch_events(now, now)
         factory.assert_called_once()
-        assert http.get.call_count == 200
+        assert http.stream.call_count == 200
         auth_factory.assert_called_once()
         request.assert_called_once_with(session=auth_factory.return_value)
         assert all(c.kwargs["session"] is auth_factory.return_value

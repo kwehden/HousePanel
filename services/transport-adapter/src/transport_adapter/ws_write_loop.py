@@ -4,6 +4,7 @@ import json
 from fastapi import WebSocket
 from shared.logging import make_logger, log_event
 from transport_adapter import state
+from transport_adapter.stream_decompose import encode_frame
 
 logger = make_logger("transport-adapter")
 
@@ -16,7 +17,7 @@ async def ws_write_loop(websocket: WebSocket) -> None:
         except asyncio.QueueEmpty:
             pass
         else:
-            await websocket.send_text(json.dumps(command))
+            await websocket.send_text(encode_frame(command))
             state.record_frame_sent()
             log_event(logger, "command_sent",
                       cmd=command.get("cmd"),
@@ -36,7 +37,7 @@ async def ws_write_loop(websocket: WebSocket) -> None:
         except (TimeoutError, asyncio.TimeoutError):
             continue
 
-        await websocket.send_text(json.dumps(command))
+        await websocket.send_text(encode_frame(command))
         state.record_frame_sent()
         log_event(logger, "command_sent",
                   cmd=command.get("cmd"),

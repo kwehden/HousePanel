@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import weakref
-from contextlib import closing
+from contextlib import closing, nullcontext
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -51,26 +51,26 @@ def client():
     {"items": [{**EVENT, "end": {"dateTime": 123}}]},
 ])
 def test_invalid_payload_never_constructs_mistyped_events(client, payload):
-    with patch.object(client._http_client, "get", return_value=httpx.Response(200, content=json.dumps(payload))):
+    with patch.object(client._http_client, "stream", return_value=nullcontext(httpx.Response(200, content=json.dumps(payload)))):
         with pytest.raises(CalendarPayloadError):
             client.fetch_events(NOW, NOW)
 
 
 def test_all_calendars_failing_is_not_an_empty_success(client):
-    with patch.object(client._http_client, "get", return_value=httpx.Response(503, text="unavailable")):
+    with patch.object(client._http_client, "stream", side_effect=lambda *a, **k: nullcontext(httpx.Response(503, text="unavailable"))):
         with pytest.raises(CalendarAPIError, match="unavailable"):
             client.fetch_events(NOW, NOW)
 
 
 def test_successful_empty_calendar_still_allows_partial_results(client):
-    responses = [httpx.Response(503, text="unavailable"), httpx.Response(200, json={"items": []})]
-    with patch.object(client._http_client, "get", side_effect=responses):
+    responses = [nullcontext(httpx.Response(503, text="unavailable")), nullcontext(httpx.Response(200, json={"items": []}))]
+    with patch.object(client._http_client, "stream", side_effect=responses):
         assert client.fetch_events(NOW, NOW) == []
 
 
 def test_time_window_offsets_are_converted_to_utc(client):
     local = datetime(2026, 10, 10, 9, tzinfo=timezone(timedelta(hours=-7)))
-    with patch.object(client._http_client, "get", return_value=httpx.Response(200, json={})) as get:
+    with patch.object(client._http_client, "stream", side_effect=lambda *a, **k: nullcontext(httpx.Response(200, json={}))) as get:
         client.fetch_events(local, local + timedelta(hours=1))
     assert get.call_args.kwargs["params"]["timeMin"] == "2026-10-10T16:00:00Z"
     assert get.call_args.kwargs["params"]["timeMax"] == "2026-10-10T17:00:00Z"
@@ -100,6 +100,45 @@ def test_failed_fetches_release_http_responses(client):
     gc.collect()
     assert len(responses) == 400
     assert all(ref() is None for ref in responses)
+
+
+def test_streaming_does_not_cache_bodies_in_response_cycles(client):
+    responses = []
+    body = json.dumps({"items": [EVENT], "unused": "x" * 40000}).encode()
+
+    def respond(request):
+        response = httpx.Response(200, content=iter([body]))
+        responses.append(weakref.ref(response))
+        return response
+
+    client._http_client.close()
+    client._http_client = httpx.Client(transport=httpx.MockTransport(respond))
+    gc.collect()
+    gc.disable()
+    try:
+        for _ in range(12):
+            assert len(client.fetch_events(NOW, NOW)) == 2
+        # Response wrappers may await GC, but must not retain cached body bytes.
+        alive = [ref() for ref in responses if ref() is not None]
+        assert alive
+        assert all(not hasattr(response, "_content") for response in alive)
+        alive.clear()
+    finally:
+        gc.enable()
+        gc.collect()
+
+
+def test_oversized_stream_is_rejected_and_closed(client):
+    responses = []
+    def respond(request):
+        response = httpx.Response(200, content=iter([b"x" * (1024 * 1024 + 1)]))
+        responses.append(response)
+        return response
+    client._http_client.close()
+    client._http_client = httpx.Client(transport=httpx.MockTransport(respond))
+    with pytest.raises(CalendarPayloadError, match="1 MiB"):
+        client.fetch_events(NOW, NOW)
+    assert responses[0].is_closed
 
 
 @pytest.mark.asyncio

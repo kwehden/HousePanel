@@ -13,6 +13,7 @@ import httpx
 from shared.models import WeatherConditions
 from shared.logging import log_event
 from shared.metrics import SourceMetrics
+from shared.contracts import JsonObject, validate_payload
 from weather_poller.adapter import WeatherAdapter, WeatherAPIError
 
 # Interval is overwritten from config at startup; the default matches main.py.
@@ -26,7 +27,7 @@ class WeatherPollerState:
     last_provider: str | None = None
 
 
-def _weather_as_dict(weather: WeatherConditions) -> dict:
+def _weather_as_dict(weather: WeatherConditions) -> JsonObject:
     """Convert WeatherConditions to a JSON-serializable dict."""
     d = dataclasses.asdict(weather)
     if isinstance(d.get("timestamp"), datetime):
@@ -79,27 +80,31 @@ async def poll_weather(
 
     try:
         weather = await asyncio.to_thread(primary.fetch_current)
-    except WeatherAPIError as exc:
+        validate_payload("weather-update", _weather_as_dict(weather))
+    except (WeatherAPIError, ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
         log_event(
             logger,
             "poll_error",
             level="error",
-            provider=exc.provider,
-            http_status=exc.http_status,
-            error_message=exc.message,
+            provider=primary.provider_name,
+            http_status=exc.http_status if isinstance(exc, WeatherAPIError) else 200,
+            error_message=exc.message if isinstance(exc, WeatherAPIError) else "Invalid upstream payload",
+            error_type=type(exc).__name__,
         )
         log_event(logger, "fallback_triggered", fallback_provider=fallback.provider_name)
         try:
             weather = await asyncio.to_thread(fallback.fetch_current)
-        except WeatherAPIError as fb_exc:
+            validate_payload("weather-update", _weather_as_dict(weather))
+        except (WeatherAPIError, ValueError, TypeError, KeyError, IndexError, AttributeError) as fb_exc:
             metrics.record_poll(False)
             log_event(
                 logger,
                 "poll_error",
                 level="error",
-                provider=fb_exc.provider,
-                http_status=fb_exc.http_status,
-                error_message=fb_exc.message,
+                provider=fallback.provider_name,
+                http_status=fb_exc.http_status if isinstance(fb_exc, WeatherAPIError) else 200,
+                error_message=fb_exc.message if isinstance(fb_exc, WeatherAPIError) else "Invalid upstream payload",
+                error_type=type(fb_exc).__name__,
             )
             return
 

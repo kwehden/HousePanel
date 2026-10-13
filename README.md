@@ -136,16 +136,21 @@ See `firmware/DEVENV.md` for the firmware build environment.
 ### CI and releases
 
 Every PR and main push runs each service's pytest suite, uploads coverage,
-checks Python errors with Ruff, and runs strict mypy for calendar. All six
+checks Python errors with Ruff, and runs strict mypy for all active services
+and shared code. All six
 active services are built from the pinned Python base image. CI checks app
 startup, health, metrics, shutdown, and the service tests against each packaged
 image. Test tools live in a separate layer and do not replace application
 dependencies in the release image.
 
-The three pollers also run isolated HTTP memory probes for 3,000 polls. After
-500 warm-up polls, RSS may grow at most 4 MiB total and 1 MiB per 1,000 polls;
+The three pollers also run isolated HTTP memory probes for 3,000 polls. Calendar
+exercises the real application lifespan, APScheduler, Uvicorn, metrics scrapes,
+TLS, and synthetic service-account signing without forced garbage collection.
+Its baseline starts after 12 polls, not 500 (42 hours at production cadence).
+The other probes use 500 warm-up polls. RSS may grow at most 4 MiB total
+and 1 MiB per 1,000 polls;
 file descriptors, tasks, and threads must stay within small fixed allowances.
-Calendar uses local TLS and synthetic OAuth refreshes. Weather exercises
+Calendar uses local TLS and synthetic service-account refreshes. Weather exercises
 fallback. A daily CI run extends the probes to 10,000 polls. These thresholds
 catch the reproduced sysmon leak, but cannot rule out every leak at normal
 cadence or against real upstream payloads. Coverage floors were calibrated
@@ -183,6 +188,26 @@ the journal before removing that failure marker to retry a release. Stop the
 timer with `systemctl --user stop housepanel-release.timer` to pause releases.
 User services run after logout/reboot when linger is enabled. Firmware builds
 and physical display checks remain manual.
+
+Internal payload contracts reject malformed structured updates, non-finite
+numbers, calendar lists over 500 events, weather forecasts over four days,
+and payloads over 256 KiB. HTTP request streams are capped at 512 KiB before
+JSON parsing. The transport fits compact UTF-8 JSON frames below 200 bytes,
+also respecting the firmware's individual string-buffer byte limits.
+HELLO refreshes share one owned polling task and drain it on shutdown.
+Malformed weather payloads trigger fallback and failure accounting.
+Calendar requests only the Google fields used by the panel and parses bounded
+streamed bodies, avoiding retention of cached bodies in HTTPX response cycles.
+
+`tools/calendar_allocation_probe.py` is an opt-in, Linux/glibc diagnostic for a
+dedicated read-only canary. It forces delivery to a local discard endpoint and
+exports Python heap, native used/free allocation, RSS, and resource counts.
+Run separate traced and untraced arms; tracer snapshots themselves consume
+memory, so use the untraced arm for RSS comparisons. GC and allocator trimming
+are endpoint experiments only, never production memory-management policy.
+
+Changes remain in PRs for user review before merging. Do not run more than
+two Codex review rounds without consulting the user.
 
 Each service has a standard Python layout with `pyproject.toml` and a test suite:
 

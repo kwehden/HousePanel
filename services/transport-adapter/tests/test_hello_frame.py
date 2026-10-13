@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from transport_adapter import state
-from transport_adapter.state_refresh import handle_hello_frame
+from transport_adapter.state_refresh import handle_hello_frame, request_poller_refresh, close_poller_refresh
 
 
 def _reset_state():
@@ -61,6 +61,7 @@ async def test_hello_frame_enqueues_time_weather_calendar():
 
     with patch("transport_adapter.state_refresh.httpx.AsyncClient", return_value=mock_client):
         await handle_hello_frame({"cmd": "HELLO", "firmware_version": "1.0.0", "post_ota": False})
+        await close_poller_refresh()
 
     queued = []
     while not state.normal_queue.empty():
@@ -103,6 +104,7 @@ async def test_hello_frame_drains_stale_queue():
 
     with patch("transport_adapter.state_refresh.httpx.AsyncClient", return_value=mock_client):
         await handle_hello_frame({"cmd": "HELLO", "firmware_version": "1.0.0", "post_ota": False})
+        await close_poller_refresh()
 
     queued = []
     while not state.normal_queue.empty():
@@ -111,3 +113,25 @@ async def test_hello_frame_drains_stale_queue():
     cmds = [q["cmd"] for q in queued]
     assert cmds[0] == "TIME", f"TIME must be first after drain; got {cmds}"
     assert cmds.count("SYSMON_TEMP") == 0, "Stale SYSMON_TEMP items not drained"
+
+
+@pytest.mark.asyncio
+async def test_refresh_storm_has_one_owned_task_and_shutdown_waits():
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocked_refresh():
+        started.set()
+        await release.wait()
+
+    await close_poller_refresh()
+    with patch("transport_adapter.state_refresh._trigger_poller_refresh", side_effect=blocked_refresh) as refresh:
+        for _ in range(200):
+            request_poller_refresh()
+        await started.wait()
+        assert refresh.call_count == 1
+        closing = asyncio.create_task(close_poller_refresh())
+        await asyncio.sleep(0)
+        assert not closing.done()
+        release.set()
+        await closing

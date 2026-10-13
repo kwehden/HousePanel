@@ -6,14 +6,22 @@ import httpx
 
 from shared.models import WeatherConditions, ForecastDay
 from weather_poller.adapter import WeatherAPIError
+from shared.contracts import JsonObject
 
 
-def _midday_conditions(hourly: list[dict]) -> str:
+def _description(slot: JsonObject) -> str:
+    text: object = slot["weatherDesc"][0]["value"]
+    if not isinstance(text, str):
+        raise ValueError("Weather description must be a string")
+    return text.lower()
+
+
+def _midday_conditions(hourly: list[JsonObject]) -> str:
     for slot in hourly:
         if slot.get("time") == "1200":
-            return slot["weatherDesc"][0]["value"].lower()
+            return _description(slot)
     if hourly:
-        return hourly[0]["weatherDesc"][0]["value"].lower()
+        return _description(hourly[0])
     return "unknown"
 
 

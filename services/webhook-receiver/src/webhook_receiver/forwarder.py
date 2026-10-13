@@ -3,6 +3,7 @@ import os
 import httpx
 from shared.logging import make_logger, log_event
 from shared.metrics import SourceMetrics
+from shared.contracts import JsonObject
 
 logger = make_logger("webhook-receiver")
 
@@ -11,7 +12,7 @@ logger = make_logger("webhook-receiver")
 metrics = SourceMetrics("webhook")
 
 
-async def forward_to_aggregator(event_data: dict) -> None:
+async def forward_to_aggregator(event_data: JsonObject) -> None:
     aggregator_url = os.environ.get("AGGREGATOR_URL", "http://housepanel-aggregator:8001")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

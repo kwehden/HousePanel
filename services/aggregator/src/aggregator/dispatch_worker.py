@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from shared.logging import make_logger, log_event
+from shared.contracts import JsonObject
 
 logger = make_logger("aggregator")
 
@@ -36,7 +37,7 @@ class _Command:
     expires_at: float = field(compare=False)
     attempts: int = field(compare=False)
     cmd: str = field(compare=False)
-    body: dict = field(compare=False)
+    body: JsonObject = field(compare=False)
     event_id: str = field(compare=False)
 
 
@@ -102,7 +103,7 @@ class DispatchWorker:
         self._url = f"{transport_url}/internal/commands"
         self._queue: asyncio.PriorityQueue[_Command] = asyncio.PriorityQueue(maxsize=maxsize)
         self._circuit = CircuitBreaker()
-        self._seq: itertools.count = itertools.count()
+        self._seq: itertools.count[int] = itertools.count()
         self.dispatched_total = 0
         self.failed_total = 0
         self.expired_total = 0
@@ -114,7 +115,7 @@ class DispatchWorker:
 
     # -- public API ----------------------------------------------------------
 
-    def enqueue(self, cmd: str, priority: int, payload: dict, event_id: str) -> None:
+    def enqueue(self, cmd: str, priority: int, payload: JsonObject, event_id: str) -> None:
         now = time.monotonic()
         item = _Command(
             neg_priority=-priority,

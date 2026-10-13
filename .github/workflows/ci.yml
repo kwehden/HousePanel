@@ -85,10 +85,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -e services/shared -e 'services/calendar-poller[dev]' ruff
+      - run: |
+          pip install -e services/shared -e 'services/calendar-poller[dev]' ruff \
+            -e services/aggregator -e services/sysmon-poller -e services/weather-poller \
+            -e services/transport-adapter -e services/webhook-receiver
       - run: ruff check --select E9,F63,F7,F82 services tools
-      - run: python -m mypy
-        working-directory: services/calendar-poller
+      - run: python -m mypy --config-file mypy.ini
       - run: pytest tools/tests -q
 
   image:

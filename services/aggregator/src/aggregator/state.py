@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from shared.models import WeatherConditions, CalendarState
+from shared.contracts import JsonObject
 
 
 @dataclass
@@ -27,7 +28,7 @@ class AggregatorState:
     def update_sysmon(self, s: SysmonData) -> None:
         self.last_sysmon = s
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> JsonObject:
         weather = None
         if self.last_weather:
             w = self.last_weather
