@@ -189,6 +189,10 @@ timer with `systemctl --user stop housepanel-release.timer` to pause releases.
 User services run after logout/reboot when linger is enabled. Firmware builds
 and physical display checks remain manual.
 
+The [release process](docs/releases.md) defines version tags, GitHub release
+records, verification evidence, rollback, and the 24-hour memory comparison.
+Main still deploys automatically; release tags record verified deployments.
+
 Internal payload contracts reject malformed structured updates, non-finite
 numbers, calendar lists over 500 events, weather forecasts over four days,
 and payloads over 256 KiB. HTTP request streams are capped at 512 KiB before
