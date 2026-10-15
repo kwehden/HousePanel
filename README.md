@@ -202,6 +202,8 @@ HELLO refreshes share one owned polling task and drain it on shutdown.
 Malformed weather payloads trigger fallback and failure accounting.
 Calendar requests only the Google fields used by the panel and parses bounded
 streamed bodies, avoiding retention of cached bodies in HTTPX response cycles.
+After closing, calendar detaches HTTPX streams on both fetch and push paths so
+completed responses and uploaded event bodies do not have to wait for cyclic GC.
 
 `tools/calendar_allocation_probe.py` is an opt-in, Linux/glibc diagnostic for a
 dedicated read-only canary. It forces delivery to a local discard endpoint and

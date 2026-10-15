@@ -37,6 +37,7 @@ async def test_poll_success_updates_state_and_pushes() -> None:
 
     mock_response = MagicMock()
     mock_response.raise_for_status.return_value = None
+    mock_response.aclose = AsyncMock()
 
     mock_async_client_instance = AsyncMock()
     mock_async_client_instance.__aenter__ = AsyncMock(return_value=mock_async_client_instance)

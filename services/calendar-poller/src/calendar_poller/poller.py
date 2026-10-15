@@ -46,7 +46,13 @@ async def push_calendar_update(
         async with (nullcontext(http_client) if http_client is not None
                     else httpx.AsyncClient(timeout=5)) as client:
             resp = await client.post(f"{aggregator_url}/internal/events", json=body)
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            finally:
+                await resp.aclose()
+                # A closed HTTPX response can still retain its uploaded event
+                # body through the bound stream's response reference.
+                resp.stream = httpx.ByteStream(b"")
         metrics.record_push(True)
     except Exception as exc:
         metrics.record_push(False)
