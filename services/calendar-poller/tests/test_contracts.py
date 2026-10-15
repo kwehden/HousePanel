@@ -19,7 +19,7 @@ from calendar_poller.calendar_client import (
     CalendarPayloadError,
     GoogleCalendarClient,
 )
-from calendar_poller.poller import CalendarPollerState, poll_google_calendar
+from calendar_poller.poller import CalendarPollerState, poll_google_calendar, push_calendar_update
 from shared.metrics import SourceMetrics
 from shared.models import CalendarEvent
 from shared.polling import PollRunner
@@ -39,6 +39,19 @@ def client():
          patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "one,two"}), \
          closing(GoogleCalendarClient()) as client:
         yield client
+
+
+@pytest.fixture
+def disabled_cyclic_gc():
+    enabled = gc.isenabled()
+    gc.collect()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+        gc.collect()
 
 
 @pytest.mark.parametrize("payload", [
@@ -102,7 +115,7 @@ def test_failed_fetches_release_http_responses(client):
     assert all(ref() is None for ref in responses)
 
 
-def test_streaming_does_not_cache_bodies_in_response_cycles(client):
+def test_streaming_releases_response_wrappers_without_cyclic_gc(client):
     responses = []
     body = json.dumps({"items": [EVENT], "unused": "x" * 40000}).encode()
 
@@ -118,11 +131,59 @@ def test_streaming_does_not_cache_bodies_in_response_cycles(client):
     try:
         for _ in range(12):
             assert len(client.fetch_events(NOW, NOW)) == 2
-        # Response wrappers may await GC, but must not retain cached body bytes.
-        alive = [ref() for ref in responses if ref() is not None]
-        assert alive
-        assert all(not hasattr(response, "_content") for response in alive)
-        alive.clear()
+        assert len(responses) == 24
+        assert all(ref() is None for ref in responses)
+    finally:
+        gc.enable()
+        gc.collect()
+
+
+@pytest.mark.parametrize("mode", ["success", "http_error", "invalid_json", "oversized", "read_error"])
+def test_streams_close_and_responses_release_on_every_exit_without_gc(client, mode):
+    responses, streams = [], []
+
+    class Stream(httpx.SyncByteStream):
+        def __init__(self):
+            self.closes = 0
+
+        def __iter__(self):
+            if mode == "read_error":
+                raise httpx.ReadError("synthetic interrupted body")
+            if mode == "oversized":
+                yield b"x" * (1024 * 1024 + 1)
+            elif mode == "invalid_json":
+                yield b"{bad"
+            else:
+                yield b'{"items":[]}'
+
+        def close(self):
+            self.closes += 1
+
+    def respond(request):
+        stream = Stream()
+        response = httpx.Response(503 if mode == "http_error" else 200, stream=stream)
+        streams.append(stream)
+        responses.append(weakref.ref(response))
+        return response
+
+    def fetch():
+        try:
+            client.fetch_events(NOW, NOW)
+        except (CalendarAPIError, ValueError, httpx.ReadError):
+            assert mode != "success"
+        else:
+            assert mode == "success"
+
+    client._http_client.close()
+    client._http_client = httpx.Client(transport=httpx.MockTransport(respond))
+    gc.collect()
+    gc.disable()
+    try:
+        for _ in range(20):
+            fetch()
+        assert responses
+        assert all(stream.closes == 1 for stream in streams)
+        assert all(ref() is None for ref in responses)
     finally:
         gc.enable()
         gc.collect()
@@ -168,7 +229,32 @@ async def test_fetch_failures_are_counted_without_replacing_state(error, caplog)
 
 
 @pytest.mark.asyncio
-async def test_repeated_polls_release_old_events_and_http_responses(client):
+@pytest.mark.parametrize("status", [202, 503])
+async def test_push_responses_and_uploaded_bodies_release_without_gc(status):
+    responses = []
+
+    def respond(request):
+        response = httpx.Response(status, json={"accepted": status == 202})
+        responses.append(weakref.ref(response))
+        return response
+
+    logger = logging.getLogger("calendar-push-retention")
+    events = [CalendarEvent(event_id="one", summary="x" * 1000, start="", end="", all_day=True)]
+    gc.collect()
+    gc.disable()
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as downstream:
+            for _ in range(20):
+                await push_calendar_update(events, "http://aggregator", logger, downstream)
+        assert len(responses) == 20
+        assert all(ref() is None for ref in responses)
+    finally:
+        gc.enable()
+        gc.collect()
+
+
+@pytest.mark.asyncio
+async def test_repeated_polls_release_old_events_and_http_responses(client, disabled_cyclic_gc):
     responses = []
     events = []
 
@@ -193,7 +279,6 @@ async def test_repeated_polls_release_old_events_and_http_responses(client):
                 events.extend(weakref.ref(event) for event in state.last_events)
         finally:
             await runner.close()
-    gc.collect()
     assert len(events) == 400
     assert sum(ref() is not None for ref in events) == 2
     assert len(responses) == 600

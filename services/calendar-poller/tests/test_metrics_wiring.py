@@ -29,6 +29,7 @@ def _client(*, raises: Exception | None = None) -> MagicMock:
     client = AsyncMock()
     resp = MagicMock()
     resp.raise_for_status = MagicMock(side_effect=raises)
+    resp.aclose = AsyncMock()
     client.post = AsyncMock(return_value=resp)
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
