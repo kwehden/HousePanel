@@ -59,8 +59,11 @@ def discard_stale_commands() -> None:
             break
 
 
-async def handle_hello_frame(frame: JsonObject) -> None:
+async def handle_hello_frame(frame: JsonObject, *, normal_ready: asyncio.Event | None = None) -> None:
     discard_stale_commands()
+    if normal_ready is not None:
+        # Refresh may fill the bounded queue, so let its writer drain new frames.
+        normal_ready.set()
     request_poller_refresh()
     await _refresh_state(triggered_by="hello")
 

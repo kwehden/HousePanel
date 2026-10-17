@@ -3,10 +3,12 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import httpx
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from transport_adapter import state
 from transport_adapter.ws_handler import _read_loop, giga_websocket_handler
+from transport_adapter.main import app
 
 
 @pytest.fixture(autouse=True)
@@ -18,6 +20,8 @@ def isolated_connection_state(monkeypatch):
     monkeypatch.setattr(state, "websocket_handover_lock", asyncio.Lock())
     monkeypatch.setattr(state, "giga_connected", False)
     monkeypatch.setattr(state, "ota_paused", False)
+    monkeypatch.setattr("transport_adapter.state_refresh.request_poller_refresh", lambda: None)
+    monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", AsyncMock())
 
 
 class ObservedQueue(asyncio.Queue):
@@ -48,6 +52,7 @@ class SocketHarness:
         self.incoming.put_nowait({"type": "websocket.connect"})
         self.messages = []
         self.accepted = asyncio.Event()
+        self.reading = asyncio.Event()
         self.sent = asyncio.Event()
         self.read_cancelled = asyncio.Event()
         self.close_started = asyncio.Event()
@@ -59,6 +64,8 @@ class SocketHarness:
         )
 
     async def receive(self):
+        if self.accepted.is_set():
+            self.reading.set()
         try:
             return await self.incoming.get()
         except asyncio.CancelledError:
@@ -113,15 +120,31 @@ async def test_replacement_discards_ota_backlog_before_delayed_hello(monkeypatch
 
         state.normal_queue.waiting.clear()
         tasks.append(asyncio.create_task(giga_websocket_handler(replacement.websocket)))
-        await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
+        await asyncio.wait_for(replacement.reading.wait(), 1)
         assert state.active_websocket is replacement.websocket
         assert state.normal_queue.empty()
         assert not replacement.sent.is_set()
 
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/internal/commands", json={
+                "cmd": "TIME", "priority": 0, "payload": {"epoch": 999}, "event_id": "before-hello",
+            })
+        assert response.status_code == 202
+        await asyncio.sleep(0.1)
+        assert not replacement.sent.is_set()
+        assert state.normal_queue.qsize() == 1
+
+        interrupt = {"cmd": "TIME", "epoch": 777}
+        state.interrupt_queue.put_nowait(interrupt)
+        await asyncio.wait_for(replacement.sent.wait(), 1)
+        assert [json.loads(item["text"]) for item in replacement.messages
+                if item["type"] == "websocket.send"] == [interrupt]
+        replacement.sent.clear()
+
         replacement.hello()
         await asyncio.wait_for(replacement.sent.wait(), 1)
         assert [json.loads(item["text"]) for item in replacement.messages
-                if item["type"] == "websocket.send"] == [fresh]
+                if item["type"] == "websocket.send"] == [interrupt, fresh]
         replacement.disconnect()
         await asyncio.wait_for(tasks[1], 1)
     finally:
@@ -134,10 +157,10 @@ async def test_interrupted_ota_does_not_pause_replacement(monkeypatch, terminati
     old, replacement = SocketHarness(), SocketHarness()
     frame = {"cmd": "TIME", "epoch": 123}
 
-    async def refresh(_frame):
+    async def refresh(*, triggered_by):
         await state.normal_queue.put(frame)
 
-    monkeypatch.setattr("transport_adapter.ws_handler.handle_hello_frame", refresh)
+    monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
     tasks = [asyncio.create_task(giga_websocket_handler(old.websocket))]
     try:
         await asyncio.wait_for(old.accepted.wait(), 1)
@@ -177,20 +200,23 @@ async def test_handover_stops_old_reader_and_writer_before_hello(monkeypatch, qu
     hello_observations = []
     hello_seen = asyncio.Event()
 
-    async def refresh(_frame):
+    async def refresh(*, triggered_by):
+        if state.active_websocket is old.websocket:
+            return
         hello_observations.append((old.read_cancelled.is_set(), old_queue.cancelled.is_set()))
         await getattr(state, queue_name).put(frame)
         # Refresh performs HTTP I/O after enqueueing TIME in production.
         await asyncio.sleep(0)
         hello_seen.set()
 
-    monkeypatch.setattr("transport_adapter.ws_handler.handle_hello_frame", refresh)
+    monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
+    old.hello()
     old_task = asyncio.create_task(giga_websocket_handler(old.websocket))
     new_task = None
     try:
         await asyncio.wait_for(old_queue.waiting.wait(), 1)
         new_task = asyncio.create_task(giga_websocket_handler(replacement.websocket))
-        await asyncio.wait_for(old_queue.second_waiting.wait(), 1)
+        await asyncio.wait_for(replacement.reading.wait(), 1)
         replacement.hello()
         await asyncio.wait_for(hello_seen.wait(), 1)
         assert hello_observations == [(True, True)]
@@ -213,6 +239,7 @@ async def test_handover_stops_old_reader_and_writer_before_hello(monkeypatch, qu
 @pytest.mark.asyncio
 async def test_three_connections_serialize_handover_and_keep_latest_owner():
     old, middle, latest = SocketHarness(hold_close=True), SocketHarness(), SocketHarness()
+    old.hello()
     tasks = [asyncio.create_task(giga_websocket_handler(old.websocket))]
     try:
         await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
@@ -227,6 +254,9 @@ async def test_three_connections_serialize_handover_and_keep_latest_owner():
         await asyncio.wait_for(asyncio.gather(*tasks[:2]), 1)
         assert state.active_websocket is latest.websocket
         assert state.giga_connected
+        state.normal_queue.waiting.clear()
+        latest.hello()
+        await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
         await state.normal_queue.put({"cmd": "TIME", "epoch": 456})
         await asyncio.wait_for(latest.sent.wait(), 1)
         assert not any(item["type"] == "websocket.send" for item in middle.messages)
@@ -247,7 +277,7 @@ async def test_handover_cancels_in_progress_refresh_before_replacement_refresh(m
     refresh_stopped = asyncio.Event()
     calls = 0
 
-    async def refresh(_frame):
+    async def refresh(*, triggered_by):
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -260,7 +290,7 @@ async def test_handover_cancels_in_progress_refresh_before_replacement_refresh(m
             assert refresh_stopped.is_set()
             await state.normal_queue.put({"cmd": "TIME", "epoch": 789})
 
-    monkeypatch.setattr("transport_adapter.ws_handler.handle_hello_frame", refresh)
+    monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
     old.hello()
     tasks = [asyncio.create_task(giga_websocket_handler(old.websocket))]
     try:
@@ -281,6 +311,7 @@ async def test_handover_cancels_in_progress_refresh_before_replacement_refresh(m
 @pytest.mark.asyncio
 async def test_handler_cancellation_joins_session_and_queue_waiter():
     socket = SocketHarness()
+    socket.hello()
     task = asyncio.create_task(giga_websocket_handler(socket.websocket))
     try:
         await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
@@ -299,7 +330,8 @@ async def test_handler_cancellation_joins_session_and_queue_waiter():
 
 
 @pytest.mark.asyncio
-async def test_repeated_reconnects_leave_no_connection_tasks():
+@pytest.mark.parametrize("send_hello", [False, True])
+async def test_repeated_reconnects_leave_no_connection_tasks(send_hello):
     baseline = asyncio.all_tasks()
     tasks = []
     previous_session = None
@@ -307,8 +339,11 @@ async def test_repeated_reconnects_leave_no_connection_tasks():
         for _ in range(25):
             state.normal_queue.waiting.clear()
             socket = SocketHarness()
+            if send_hello:
+                socket.hello()
             tasks.append(asyncio.create_task(giga_websocket_handler(socket.websocket)))
-            await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
+            ready = state.normal_queue.waiting if send_hello else socket.reading
+            await asyncio.wait_for(ready.wait(), 1)
             if len(tasks) > 1:
                 await asyncio.wait_for(tasks[-2], 1)
                 assert previous_session is not None and previous_session.done()
@@ -323,6 +358,35 @@ async def test_repeated_reconnects_leave_no_connection_tasks():
         assert asyncio.all_tasks() <= baseline
     finally:
         await stop_handlers(*tasks)
+
+
+@pytest.mark.asyncio
+async def test_hello_refresh_larger_than_queue_capacity_does_not_deadlock(monkeypatch):
+    socket = SocketHarness()
+    finished = asyncio.Event()
+    frames = [{"cmd": "TIME", "epoch": i} for i in range(state.normal_queue.maxsize + 10)]
+
+    async def refresh(*, triggered_by):
+        for frame in frames:
+            await state.normal_queue.put(frame)
+        finished.set()
+
+    monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
+    socket.hello()
+    task = asyncio.create_task(giga_websocket_handler(socket.websocket))
+    try:
+        await asyncio.wait_for(finished.wait(), 1)
+        async def wait_for_all_frames():
+            while sum(item["type"] == "websocket.send" for item in socket.messages) < len(frames):
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(wait_for_all_frames(), 1)
+        assert [json.loads(item["text"]) for item in socket.messages
+                if item["type"] == "websocket.send"] == frames
+        socket.disconnect()
+        await asyncio.wait_for(task, 1)
+    finally:
+        await stop_handlers(task)
 
 
 @pytest.mark.asyncio
