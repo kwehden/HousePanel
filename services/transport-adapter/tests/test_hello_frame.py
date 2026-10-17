@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from transport_adapter import state
@@ -52,10 +53,13 @@ async def test_hello_frame_enqueues_time_weather_calendar():
     """On HELLO, state_refresh puts TIME, decomposed WEATHER, and CAL_EVENT in normal_queue."""
     mock_response = MagicMock()
     mock_response.json.return_value = _AGGREGATOR_STATE
+    mock_response.content = json.dumps(_AGGREGATOR_STATE).encode()
+    mock_response.aclose = AsyncMock()
     mock_response.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.post = AsyncMock(return_value=mock_response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -95,10 +99,13 @@ async def test_hello_frame_drains_stale_queue():
 
     mock_response = MagicMock()
     mock_response.json.return_value = _AGGREGATOR_STATE
+    mock_response.content = json.dumps(_AGGREGATOR_STATE).encode()
+    mock_response.aclose = AsyncMock()
     mock_response.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.post = AsyncMock(return_value=mock_response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 

@@ -9,7 +9,7 @@ from transport_adapter.stream_decompose import encode_frame
 logger = make_logger("transport-adapter")
 
 
-async def ws_write_loop(websocket: WebSocket) -> None:
+async def ws_write_loop(websocket: WebSocket, normal_ready: asyncio.Event | None = None) -> None:
     while True:
         # Interrupt queue has priority — drain one item if available
         try:
@@ -24,8 +24,8 @@ async def ws_write_loop(websocket: WebSocket) -> None:
                       message_id=command.get("message_id"))
             continue
 
-        # Normal queue is blocked during OTA
-        if state.ota_paused:
+        # A session must receive HELLO before consuming normal commands.
+        if state.ota_paused or (normal_ready is not None and not normal_ready.is_set()):
             await asyncio.sleep(0.05)
             continue
 
