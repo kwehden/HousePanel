@@ -6,7 +6,7 @@ from starlette.websockets import WebSocketDisconnect
 from shared.logging import make_logger, log_event
 from transport_adapter import state
 from transport_adapter.ws_write_loop import ws_write_loop
-from transport_adapter.state_refresh import handle_hello_frame, handle_post_ota_refresh
+from transport_adapter.state_refresh import discard_stale_commands, handle_hello_frame, handle_post_ota_refresh
 
 logger = make_logger("transport-adapter")
 
@@ -48,6 +48,8 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
                 await previous.close(code=1012)
             except (RuntimeError, WebSocketDisconnect):
                 pass
+        # The replacement can wait before HELLO; do not send the old OTA backlog.
+        discard_stale_commands()
         state.ota_paused = False
         state.giga_connected = True
         state.active_websocket = websocket

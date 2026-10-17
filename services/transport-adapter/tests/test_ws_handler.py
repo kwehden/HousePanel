@@ -89,6 +89,46 @@ async def stop_handlers(*tasks):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("termination", ["disconnect", "handover"])
+async def test_replacement_discards_ota_backlog_before_delayed_hello(monkeypatch, termination):
+    old, replacement = SocketHarness(), SocketHarness()
+    fresh = {"cmd": "TIME", "epoch": 456}
+
+    async def refresh(*, triggered_by):
+        await state.normal_queue.put(fresh)
+
+    monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
+    monkeypatch.setattr("transport_adapter.state_refresh.request_poller_refresh", lambda: None)
+    tasks = [asyncio.create_task(giga_websocket_handler(old.websocket))]
+    try:
+        await asyncio.wait_for(old.accepted.wait(), 1)
+        old.incoming.put_nowait({"type": "websocket.receive", "text": '{"cmd":"OTA-START"}'})
+        await asyncio.wait_for(old.sent.wait(), 1)
+        # Let the writer observe OTA pause before building its backlog.
+        await asyncio.sleep(0.1)
+        state.normal_queue.put_nowait({"cmd": "TIME", "epoch": 123})
+        if termination == "disconnect":
+            old.disconnect()
+            await asyncio.wait_for(tasks[0], 1)
+
+        state.normal_queue.waiting.clear()
+        tasks.append(asyncio.create_task(giga_websocket_handler(replacement.websocket)))
+        await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
+        assert state.active_websocket is replacement.websocket
+        assert state.normal_queue.empty()
+        assert not replacement.sent.is_set()
+
+        replacement.hello()
+        await asyncio.wait_for(replacement.sent.wait(), 1)
+        assert [json.loads(item["text"]) for item in replacement.messages
+                if item["type"] == "websocket.send"] == [fresh]
+        replacement.disconnect()
+        await asyncio.wait_for(tasks[1], 1)
+    finally:
+        await stop_handlers(*tasks)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("termination", ["disconnect", "cancel", "handover"])
 async def test_interrupted_ota_does_not_pause_replacement(monkeypatch, termination):
     old, replacement = SocketHarness(), SocketHarness()

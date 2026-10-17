@@ -51,12 +51,16 @@ async def close_poller_refresh() -> None:
         _refresh_runner = None
 
 
-async def handle_hello_frame(frame: JsonObject) -> None:
+def discard_stale_commands() -> None:
     while True:
         try:
             state.normal_queue.get_nowait()
         except asyncio.QueueEmpty:
             break
+
+
+async def handle_hello_frame(frame: JsonObject) -> None:
+    discard_stale_commands()
     request_poller_refresh()
     await _refresh_state(triggered_by="hello")
 
