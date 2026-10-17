@@ -48,6 +48,7 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
                 await previous.close(code=1012)
             except (RuntimeError, WebSocketDisconnect):
                 pass
+        state.ota_paused = False
         state.giga_connected = True
         state.active_websocket = websocket
         task = asyncio.create_task(_run_connection(websocket))
@@ -61,6 +62,7 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
     finally:
         # A session cancelled before its first step cannot run its own finally.
         if state.active_websocket_task is task:
+            state.ota_paused = False
             state.giga_connected = False
             state.active_websocket = None
             state.active_websocket_task = None
@@ -79,6 +81,7 @@ async def _run_connection(websocket: WebSocket) -> None:
     finally:
         # Cleanup must never clear a replacement's ownership.
         if state.active_websocket is websocket:
+            state.ota_paused = False
             state.giga_connected = False
             state.active_websocket = None
             state.active_websocket_task = None

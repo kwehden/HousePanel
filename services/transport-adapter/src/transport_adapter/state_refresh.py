@@ -4,17 +4,37 @@ import time as _time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
+from pydantic import BaseModel, ConfigDict, Field
 from shared.logging import make_logger, log_event
 from shared.polling import PollRunner
 from transport_adapter import state
 from transport_adapter.stream_decompose import decompose_command
-from uuid import uuid4
-from shared.contracts import JsonObject
+from shared.contracts import CalendarPayload, JsonObject, SysmonPayload, WeatherPayload
 
 _PACIFIC = ZoneInfo("America/Los_Angeles")
 
 logger = make_logger("transport-adapter")
 _refresh_runner: PollRunner | None = None
+
+
+class _TickerPayload(BaseModel):
+    text: str = ""
+    narrative: str | None = None
+    ttl_seconds: int = Field(default=60, ge=0)
+
+
+class _TickerEntry(BaseModel):
+    payload: _TickerPayload = Field(default_factory=_TickerPayload)
+    ttl_seconds: int | None = Field(default=None, ge=0)
+
+
+class _Snapshot(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
+    weather: WeatherPayload | None = None
+    calendar: CalendarPayload | None = None
+    sysmon: SysmonPayload | None = None
+    ticker_queue: list[_TickerEntry] = Field(default_factory=list)
 
 
 def request_poller_refresh() -> None:
@@ -44,7 +64,12 @@ async def handle_hello_frame(frame: JsonObject) -> None:
 async def _trigger_poller_refresh() -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{state.AGGREGATOR_URL}/internal/refresh")
+            resp = await client.post(f"{state.AGGREGATOR_URL}/internal/refresh")
+            try:
+                resp.raise_for_status()
+            finally:
+                await resp.aclose()
+                resp.stream = httpx.ByteStream(b"")
         log_event(logger, "poller_refresh_triggered")
     except Exception as exc:
         log_event(logger, "poller_refresh_trigger_failed", level="warning", error=str(exc))
@@ -64,38 +89,36 @@ async def _refresh_state(triggered_by: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{state.AGGREGATOR_URL}/internal/state")
-            resp.raise_for_status()
-            data = resp.json()
+            try:
+                resp.raise_for_status()
+                data = _Snapshot.model_validate_json(resp.content)
+            finally:
+                await resp.aclose()
+                # HTTPX's bound stream otherwise keeps closed responses in a cycle.
+                resp.stream = httpx.ByteStream(b"")
+
+        items: list[JsonObject] = []
+        for cmd, payload in (
+            ("WEATHER-UPDATE", data.weather),
+            ("CALENDAR-UPDATE", data.calendar),
+            ("SYSMON-UPDATE", data.sysmon),
+        ):
+            if payload is not None:
+                items.extend(decompose_command(cmd, payload.model_dump()))
+        for entry in data.ticker_queue:
+            text = entry.payload.narrative or entry.payload.text
+            if text:
+                items.extend(decompose_command("TICKER-APPEND", {
+                    "text": text,
+                    "ttl_seconds": (entry.ttl_seconds if entry.ttl_seconds is not None
+                                    else entry.payload.ttl_seconds),
+                }))
     except Exception as exc:
         log_event(logger, "state_refresh_failed", level="warning",
                   triggered_by=triggered_by, error=str(exc))
         return
 
-    weather = data.get("weather")
-    if weather:
-        for item in decompose_command("WEATHER-UPDATE", weather):
-            await state.normal_queue.put(item)
-
-    calendar = data.get("calendar")
-    if calendar:
-        for item in decompose_command("CALENDAR-UPDATE", calendar):
-            await state.normal_queue.put(item)
-
-    sysmon = data.get("sysmon")
-    if sysmon:
-        for item in decompose_command("SYSMON-UPDATE", sysmon):
-            await state.normal_queue.put(item)
-
-    ticker_queue = data.get("ticker_queue", [])
-    for entry in ticker_queue:
-        payload = entry.get("payload", {})
-        text = payload.get("narrative") or payload.get("text") or ""
-        if not text:
-            continue
-        await state.normal_queue.put({
-            "cmd": "TICKER-APPEND",
-            "text": text,
-            "ttl_seconds": entry.get("ttl_seconds", 60),
-        })
+    for item in items:
+        await state.normal_queue.put(item)
 
     log_event(logger, "state_refreshed", triggered_by=triggered_by)

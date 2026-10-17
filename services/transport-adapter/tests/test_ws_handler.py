@@ -89,6 +89,46 @@ async def stop_handlers(*tasks):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("termination", ["disconnect", "cancel", "handover"])
+async def test_interrupted_ota_does_not_pause_replacement(monkeypatch, termination):
+    old, replacement = SocketHarness(), SocketHarness()
+    frame = {"cmd": "TIME", "epoch": 123}
+
+    async def refresh(_frame):
+        await state.normal_queue.put(frame)
+
+    monkeypatch.setattr("transport_adapter.ws_handler.handle_hello_frame", refresh)
+    tasks = [asyncio.create_task(giga_websocket_handler(old.websocket))]
+    try:
+        await asyncio.wait_for(old.accepted.wait(), 1)
+        old.incoming.put_nowait({"type": "websocket.receive", "text": '{"cmd":"OTA-START"}'})
+        await asyncio.wait_for(old.sent.wait(), 1)
+        assert state.ota_paused
+        if termination == "disconnect":
+            old.disconnect()
+            await asyncio.wait_for(tasks[0], 1)
+            assert not state.ota_paused
+        elif termination == "cancel":
+            tasks[0].cancel()
+            await asyncio.gather(tasks[0], return_exceptions=True)
+            assert not state.ota_paused
+
+        replacement.hello()
+        tasks.append(asyncio.create_task(giga_websocket_handler(replacement.websocket)))
+        await asyncio.wait_for(replacement.sent.wait(), 1)
+        await asyncio.gather(tasks[0], return_exceptions=True)
+        assert not state.ota_paused
+        assert state.giga_connected
+        assert [json.loads(item["text"]) for item in replacement.messages
+                if item["type"] == "websocket.send"] == [frame]
+        assert state.normal_queue.empty()
+        replacement.disconnect()
+        await asyncio.wait_for(tasks[1], 1)
+    finally:
+        await stop_handlers(*tasks)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("queue_name", ["normal_queue", "interrupt_queue"])
 async def test_handover_stops_old_reader_and_writer_before_hello(monkeypatch, queue_name):
     old, replacement = SocketHarness(), SocketHarness()
