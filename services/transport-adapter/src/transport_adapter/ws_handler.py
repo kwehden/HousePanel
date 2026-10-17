@@ -6,12 +6,12 @@ from starlette.websockets import WebSocketDisconnect
 from shared.logging import make_logger, log_event
 from transport_adapter import state
 from transport_adapter.ws_write_loop import ws_write_loop
-from transport_adapter.state_refresh import handle_hello_frame, handle_post_ota_refresh
+from transport_adapter.state_refresh import discard_stale_commands, handle_hello_frame, handle_post_ota_refresh
 
 logger = make_logger("transport-adapter")
 
 
-async def _read_loop(websocket: WebSocket) -> None:
+async def _read_loop(websocket: WebSocket, normal_ready: asyncio.Event | None = None) -> None:
     while True:
         raw = await websocket.receive_text()
         try:
@@ -22,7 +22,7 @@ async def _read_loop(websocket: WebSocket) -> None:
             continue
         cmd = frame.get("cmd")
         if cmd == "HELLO":
-            await handle_hello_frame(frame)
+            await handle_hello_frame(frame, normal_ready=normal_ready)
         elif cmd == "OTA-START":
             state.ota_paused = True
             log_event(logger, "ota_start_received")
@@ -48,6 +48,9 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
                 await previous.close(code=1012)
             except (RuntimeError, WebSocketDisconnect):
                 pass
+        # The replacement can wait before HELLO; do not send the old OTA backlog.
+        discard_stale_commands()
+        state.ota_paused = False
         state.giga_connected = True
         state.active_websocket = websocket
         task = asyncio.create_task(_run_connection(websocket))
@@ -61,16 +64,18 @@ async def giga_websocket_handler(websocket: WebSocket) -> None:
     finally:
         # A session cancelled before its first step cannot run its own finally.
         if state.active_websocket_task is task:
+            state.ota_paused = False
             state.giga_connected = False
             state.active_websocket = None
             state.active_websocket_task = None
 
 
 async def _run_connection(websocket: WebSocket) -> None:
+    normal_ready = asyncio.Event()
     try:
         async with asyncio.TaskGroup() as tg:
-            tg.create_task(_read_loop(websocket))
-            tg.create_task(ws_write_loop(websocket))
+            tg.create_task(_read_loop(websocket, normal_ready))
+            tg.create_task(ws_write_loop(websocket, normal_ready))
     except* WebSocketDisconnect:
         log_event(logger, "giga_ws_disconnected_clean")
     except* Exception as eg:
@@ -79,6 +84,7 @@ async def _run_connection(websocket: WebSocket) -> None:
     finally:
         # Cleanup must never clear a replacement's ownership.
         if state.active_websocket is websocket:
+            state.ota_paused = False
             state.giga_connected = False
             state.active_websocket = None
             state.active_websocket_task = None
