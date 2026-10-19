@@ -56,3 +56,11 @@ async def test_metrics_endpoint_declares_no_poll_interval():
 
     assert 'housepanel_source_push_total{outcome="success",service="webhook"} 0' in body
     assert "housepanel_source_poll_interval_seconds" not in body
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("webhook_receiver.forwarder.async_request", send)

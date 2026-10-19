@@ -30,6 +30,7 @@ def build(service: str, sha: str, cycles: int) -> None:
                  "-v", f"{ROOT / 'tools'}:/tools:ro", "-v", f"{ROOT / 'services' / service / 'tests'}:/tests:ro",
                  "--entrypoint", "python", image)
     run(*container, "/tools/image_smoke.py", service)
+    run(*container, "/tools/httpx_contract.py", service)
     test_image = image + "-test"
     run("docker", "build", "--build-arg", f"BASE_IMAGE={image}", "-f", "tools/Dockerfile.test", "-t", test_image, ".")
     run(*container[:-1], test_image, "-m", "pytest", "/tests", "-q", "--asyncio-mode=auto", "-p", "no:cacheprovider")

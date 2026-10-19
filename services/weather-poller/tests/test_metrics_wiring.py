@@ -105,3 +105,11 @@ async def test_fallback_success_counts_as_a_poll_success():
 
     assert metrics.poll_success_total == 1
     assert metrics.poll_failure_total == 0
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("weather_poller.poller.async_request", send)

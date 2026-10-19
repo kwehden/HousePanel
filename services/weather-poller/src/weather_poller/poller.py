@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import httpx
+from shared.http import async_request
 
 from shared.models import WeatherConditions
 from shared.logging import log_event
@@ -51,7 +52,7 @@ async def push_weather_update(
     try:
         async with (nullcontext(http_client) if http_client is not None
                     else httpx.AsyncClient(timeout=5)) as client:
-            response = await client.post(
+            response = await async_request(client, "POST",
                 f"{aggregator_url}/internal/events", json=body
             )
             response.raise_for_status()

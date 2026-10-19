@@ -142,3 +142,11 @@ async def test_refresh_storm_has_one_owned_task_and_shutdown_waits():
         assert not closing.done()
         release.set()
         await closing
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("transport_adapter.state_refresh.async_request", send)

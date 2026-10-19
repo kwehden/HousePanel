@@ -14,6 +14,7 @@ from unittest.mock import patch
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from google.oauth2 import service_account
 import httpx
+from shared.http import async_request
 import uvicorn
 
 import calendar_memory_probe as fixture
@@ -74,7 +75,7 @@ async def probe(args):
                     if runner._task is not None:
                         await asyncio.shield(runner._task)
                     for path in ("/metrics", "/healthz"):
-                        response = await scrape.get(url + path)
+                        response = await async_request(scrape, "GET", url + path)
                         response.raise_for_status()
                     await asyncio.sleep(0.02)
                     cycle = fixture.metrics.poll_success_total

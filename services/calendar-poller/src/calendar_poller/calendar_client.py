@@ -8,6 +8,7 @@ import google.auth
 import google.auth.transport.requests
 import httpx
 import requests
+from shared.http import request, ResponseTooLarge
 
 from shared.logging import log_event, make_logger
 from shared.models import CalendarEvent
@@ -67,24 +68,13 @@ class GoogleCalendarClient:
         self, calendar_id: str, params: dict[str, str], headers: dict[str, str]
     ) -> list[CalendarEvent]:
         url = f"{_CALENDAR_API_BASE}/{calendar_id}/events"
-        # Buffered HTTPX responses participate in response/stream cycles. Read
-        # into a local bounded buffer so bodies are not retained until cyclic GC.
-        with self._http_client.stream("GET", url, params=params, headers=headers) as response:
-            try:
-                if not response.is_success:
-                    preview = next(response.iter_bytes(chunk_size=200), b"")[:200]
-                    raise CalendarAPIError(response.status_code, preview.decode(errors="replace"))
-                raw = bytearray()
-                for chunk in response.iter_bytes(chunk_size=16384):
-                    if len(raw) + len(chunk) > 1024 * 1024:
-                        raise CalendarPayloadError("Calendar response exceeds 1 MiB")
-                    raw.extend(chunk)
-                payload: object = json.loads(raw)
-            finally:
-                response.close()
-                # HTTPX's closed stream still references its response. Detach it
-                # only after closing, releasing request/response cycles without GC.
-                response.stream = httpx.ByteStream(b"")
+        try:
+            response = request(self._http_client, "GET", url, params=params, headers=headers)
+        except ResponseTooLarge as exc:
+            raise CalendarPayloadError("Calendar response exceeds 1 MiB") from exc
+        if not response.is_success:
+            raise CalendarAPIError(response.status_code, response.content.decode(errors="replace"))
+        payload: object = json.loads(response.content)
         if not isinstance(payload, dict):
             raise CalendarPayloadError("Expected a calendar response object")
         items = payload.get("items", [])

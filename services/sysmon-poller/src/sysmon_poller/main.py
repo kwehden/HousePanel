@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import httpx
+from shared.http import async_request
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.responses import Response
@@ -27,7 +28,7 @@ metrics = SourceMetrics("sysmon", poll_interval_seconds=_POLL_INTERVAL)
 
 async def _poll(client: httpx.AsyncClient) -> None:
     try:
-        latest_resp = await client.get(
+        latest_resp = await async_request(client, "GET",
             f"{_ARDTEMP_URL}/latest", params={"board_id": _BOARD_ID}
         )
         if latest_resp.status_code != 200:
@@ -45,7 +46,7 @@ async def _poll(client: httpx.AsyncClient) -> None:
         metrics.record_poll(True)
         humidity_pct = float(latest["h"]) if latest.get("h") is not None else None
 
-        agg_resp = await client.post(
+        agg_resp = await async_request(client, "POST",
             f"{_AGGREGATOR_URL}/internal/events",
             json={
                 "source": "sysmon-poller",

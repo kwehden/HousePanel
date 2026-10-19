@@ -198,3 +198,13 @@ class TestWttrInAdapter:
         assert err.provider == "wttr_in"
         assert err.http_status == 200
         assert "Unexpected response structure" in str(err)
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate parsing; image contracts exercise real streams.
+    def send(client, method, url, **kwargs):
+        return getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("weather_poller.adapters.google.request", send)
+    monkeypatch.setattr("weather_poller.adapters.openweathermap.request", send)
+    monkeypatch.setattr("weather_poller.adapters.wttr_in.request", send)

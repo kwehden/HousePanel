@@ -25,6 +25,11 @@ from shared.models import CalendarEvent
 from shared.polling import PollRunner
 
 
+def _response(*args, **kwargs):
+    kwargs.setdefault("request", httpx.Request("GET", "http://synthetic"))
+    return httpx.Response(*args, **kwargs)
+
+
 NOW = datetime(2026, 10, 10, tzinfo=timezone.utc)
 EVENT = {
     "id": "one", "summary": "Appointment",
@@ -64,26 +69,26 @@ def disabled_cyclic_gc():
     {"items": [{**EVENT, "end": {"dateTime": 123}}]},
 ])
 def test_invalid_payload_never_constructs_mistyped_events(client, payload):
-    with patch.object(client._http_client, "stream", return_value=nullcontext(httpx.Response(200, content=json.dumps(payload)))):
+    with patch.object(client._http_client, "stream", return_value=nullcontext(_response(200, content=json.dumps(payload)))):
         with pytest.raises(CalendarPayloadError):
             client.fetch_events(NOW, NOW)
 
 
 def test_all_calendars_failing_is_not_an_empty_success(client):
-    with patch.object(client._http_client, "stream", side_effect=lambda *a, **k: nullcontext(httpx.Response(503, text="unavailable"))):
+    with patch.object(client._http_client, "stream", side_effect=lambda *a, **k: nullcontext(_response(503, text="unavailable"))):
         with pytest.raises(CalendarAPIError, match="unavailable"):
             client.fetch_events(NOW, NOW)
 
 
 def test_successful_empty_calendar_still_allows_partial_results(client):
-    responses = [nullcontext(httpx.Response(503, text="unavailable")), nullcontext(httpx.Response(200, json={"items": []}))]
+    responses = [nullcontext(_response(503, text="unavailable")), nullcontext(_response(200, json={"items": []}))]
     with patch.object(client._http_client, "stream", side_effect=responses):
         assert client.fetch_events(NOW, NOW) == []
 
 
 def test_time_window_offsets_are_converted_to_utc(client):
     local = datetime(2026, 10, 10, 9, tzinfo=timezone(timedelta(hours=-7)))
-    with patch.object(client._http_client, "stream", side_effect=lambda *a, **k: nullcontext(httpx.Response(200, json={}))) as get:
+    with patch.object(client._http_client, "stream", side_effect=lambda *a, **k: nullcontext(_response(200, json={}))) as get:
         client.fetch_events(local, local + timedelta(hours=1))
     assert get.call_args.kwargs["params"]["timeMin"] == "2026-10-10T16:00:00Z"
     assert get.call_args.kwargs["params"]["timeMax"] == "2026-10-10T17:00:00Z"
@@ -101,7 +106,7 @@ def test_failed_fetches_release_http_responses(client):
     responses = []
 
     def respond(request):
-        response = httpx.Response(503, text="unavailable")
+        response = _response(503, text="unavailable")
         responses.append(weakref.ref(response))
         return response
 
@@ -120,7 +125,7 @@ def test_streaming_releases_response_wrappers_without_cyclic_gc(client):
     body = json.dumps({"items": [EVENT], "unused": "x" * 40000}).encode()
 
     def respond(request):
-        response = httpx.Response(200, content=iter([body]))
+        response = _response(200, content=iter([body]))
         responses.append(weakref.ref(response))
         return response
 
@@ -161,7 +166,7 @@ def test_streams_close_and_responses_release_on_every_exit_without_gc(client, mo
 
     def respond(request):
         stream = Stream()
-        response = httpx.Response(503 if mode == "http_error" else 200, stream=stream)
+        response = _response(503 if mode == "http_error" else 200, stream=stream)
         streams.append(stream)
         responses.append(weakref.ref(response))
         return response
@@ -192,7 +197,7 @@ def test_streams_close_and_responses_release_on_every_exit_without_gc(client, mo
 def test_oversized_stream_is_rejected_and_closed(client):
     responses = []
     def respond(request):
-        response = httpx.Response(200, content=iter([b"x" * (1024 * 1024 + 1)]))
+        response = _response(200, content=iter([b"x" * (1024 * 1024 + 1)]))
         responses.append(response)
         return response
     client._http_client.close()
@@ -234,7 +239,7 @@ async def test_push_responses_and_uploaded_bodies_release_without_gc(status):
     responses = []
 
     def respond(request):
-        response = httpx.Response(status, json={"accepted": status == 202})
+        response = _response(status, json={"accepted": status == 202})
         responses.append(weakref.ref(response))
         return response
 
@@ -259,7 +264,7 @@ async def test_repeated_polls_release_old_events_and_http_responses(client, disa
     events = []
 
     def respond(request):
-        response = httpx.Response(200, json={"items": [EVENT]})
+        response = _response(200, json={"items": [EVENT]})
         responses.append(weakref.ref(response))
         return response
 

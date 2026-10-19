@@ -4,6 +4,7 @@ import time as _time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
+from shared.http import async_request
 from pydantic import BaseModel, ConfigDict, Field
 from shared.logging import make_logger, log_event
 from shared.polling import PollRunner
@@ -71,12 +72,8 @@ async def handle_hello_frame(frame: JsonObject, *, normal_ready: asyncio.Event |
 async def _trigger_poller_refresh() -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(f"{state.AGGREGATOR_URL}/internal/refresh")
-            try:
-                resp.raise_for_status()
-            finally:
-                await resp.aclose()
-                resp.stream = httpx.ByteStream(b"")
+            resp = await async_request(client, "POST", f"{state.AGGREGATOR_URL}/internal/refresh")
+            resp.raise_for_status()
         log_event(logger, "poller_refresh_triggered")
     except Exception as exc:
         log_event(logger, "poller_refresh_trigger_failed", level="warning", error=str(exc))
@@ -95,14 +92,9 @@ async def _refresh_state(triggered_by: str) -> None:
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{state.AGGREGATOR_URL}/internal/state")
-            try:
-                resp.raise_for_status()
-                data = _Snapshot.model_validate_json(resp.content)
-            finally:
-                await resp.aclose()
-                # HTTPX's bound stream otherwise keeps closed responses in a cycle.
-                resp.stream = httpx.ByteStream(b"")
+            resp = await async_request(client, "GET", f"{state.AGGREGATOR_URL}/internal/state")
+            resp.raise_for_status()
+            data = _Snapshot.model_validate_json(resp.content)
 
         items: list[JsonObject] = []
         for cmd, payload in (

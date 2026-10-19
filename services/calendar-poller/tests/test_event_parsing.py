@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import httpx
 from unittest.mock import MagicMock, patch
 
 from calendar_poller.calendar_client import GoogleCalendarClient
@@ -25,9 +26,8 @@ def _client() -> GoogleCalendarClient:
 
 
 def _respond(items: list[dict]) -> MagicMock:
-    resp = MagicMock()
-    resp.is_success = True
-    resp.iter_bytes.return_value = [json.dumps({"items": items}).encode()]
+    resp = httpx.Response(200, json={"items": items},
+                          request=httpx.Request("GET", "http://synthetic"))
     http = MagicMock()
     http.stream.return_value.__enter__.return_value = resp
     http.__enter__ = MagicMock(return_value=http)

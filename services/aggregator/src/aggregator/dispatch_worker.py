@@ -11,6 +11,7 @@ import httpx
 
 from shared.logging import make_logger, log_event
 from shared.contracts import JsonObject
+from shared.http import async_request
 
 logger = make_logger("aggregator")
 
@@ -241,7 +242,7 @@ class DispatchWorker:
     async def _attempt(self, item: _Command) -> None:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(self._url, json=item.body)
+                resp = await async_request(client, "POST", self._url, json=item.body)
 
             if resp.status_code in (200, 202, 204):
                 self._circuit.record_success()

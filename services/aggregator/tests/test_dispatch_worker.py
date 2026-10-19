@@ -394,3 +394,11 @@ async def test_server_error_is_not_logged_as_backpressure():
     events = [c.args[1] for c in log.call_args_list]
     assert "command_http_error" in events
     assert "command_backpressure" not in events
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("aggregator.dispatch_worker.async_request", send)
