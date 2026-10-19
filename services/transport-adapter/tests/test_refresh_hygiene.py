@@ -40,14 +40,14 @@ def upstream(monkeypatch):
         return original_client(transport=httpx.MockTransport(respond), **kwargs)
 
     monkeypatch.setattr(state_refresh.httpx, "AsyncClient", client)
-    monkeypatch.setattr(state, "normal_queue", asyncio.Queue(maxsize=50))
+    monkeypatch.setattr(state.primary, "normal_queue", asyncio.Queue(maxsize=50))
     return replies, streams, responses
 
 
 def drain():
     frames = []
-    while not state.normal_queue.empty():
-        frames.append(state.normal_queue.get_nowait())
+    while not state.primary.normal_queue.empty():
+        frames.append(state.primary.normal_queue.get_nowait())
     return frames
 
 

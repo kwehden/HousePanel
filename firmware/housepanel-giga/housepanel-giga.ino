@@ -14,6 +14,7 @@ static unsigned long _doorbell_start_ms = 0;
 static unsigned long _doorbell_timeout_ms = 0;
 static unsigned long _last_data_rx_ms = 0;
 static unsigned long _last_indicator_ms = 0;
+static unsigned long _last_ws_attempt_ms = 0;
 
 // If the far end silently closes the socket, the Giga's local ws_connected()
 // can keep reporting true (stale half-open TCP) — no more data arrives, but no
@@ -34,6 +35,7 @@ void setup() {
         ws_send_hello(false);
         _last_data_rx_ms = millis();
     }
+    _last_ws_attempt_ms = millis();
     // RTC is seeded by the first TIME command the server sends in response to HELLO.
     // 10s gives headroom above the 3s WS handshake timeout (see ws_init()) plus normal loop overhead.
     mbed::Watchdog::get_instance().start(10000);
@@ -48,7 +50,11 @@ void loop() {
         Serial.print("loop #");
         Serial.print(_loop_count);
         Serial.print(" ws_connected=");
-        Serial.println(ws_connected());
+        Serial.print(ws_connected());
+        Serial.print(" hostname=");
+        Serial.print(HOUSEPANEL_HOSTNAME);
+        Serial.print(" ip=");
+        Serial.println(WiFi.localIP());
     }
     if (!wifi_status_ok()) {
         wifi_connect(display_service);
@@ -58,7 +64,8 @@ void loop() {
         Serial.println("ws stale (no data received) — forcing reconnect");
         ws_force_reconnect();
     }
-    if (!ws_connected()) {
+    if (!ws_connected() && (millis() - _last_ws_attempt_ms) >= 5000UL) {
+        _last_ws_attempt_ms = millis();
         mbed::Watchdog::get_instance().kick();
         unsigned long ws_connect_start_ms = millis();
         bool ws_ok = ws_connect();

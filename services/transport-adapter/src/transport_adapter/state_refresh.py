@@ -52,21 +52,28 @@ async def close_poller_refresh() -> None:
         _refresh_runner = None
 
 
-def discard_stale_commands() -> None:
+def discard_stale_commands(panel: state.Panel | None = None) -> None:
+    panel = panel if panel is not None else state.primary
+    panel.normal_generation += 1
+    panel.pending_normal = None
+    if panel.normal_getter is not None and not panel.normal_getter.done():
+        panel.normal_getter.cancel()
     while True:
         try:
-            state.normal_queue.get_nowait()
+            panel.normal_queue.get_nowait()
         except asyncio.QueueEmpty:
             break
 
 
-async def handle_hello_frame(frame: JsonObject, *, normal_ready: asyncio.Event | None = None) -> None:
-    discard_stale_commands()
+async def handle_hello_frame(frame: JsonObject, *, normal_ready: asyncio.Event | None = None,
+                             panel: state.Panel | None = None) -> None:
+    panel = panel if panel is not None else state.primary
+    discard_stale_commands(panel)
     if normal_ready is not None:
         # Refresh may fill the bounded queue, so let its writer drain new frames.
         normal_ready.set()
     request_poller_refresh()
-    await _refresh_state(triggered_by="hello")
+    await _refresh_state(triggered_by="hello", panel=panel)
 
 
 async def _trigger_poller_refresh() -> None:
@@ -79,16 +86,19 @@ async def _trigger_poller_refresh() -> None:
         log_event(logger, "poller_refresh_trigger_failed", level="warning", error=str(exc))
 
 
-async def handle_post_ota_refresh() -> None:
-    await _refresh_state(triggered_by="post_ota")
+async def handle_post_ota_refresh(panel: state.Panel | None = None) -> None:
+    panel = panel if panel is not None else state.primary
+    discard_stale_commands(panel)
+    await _refresh_state(triggered_by="post_ota", panel=panel)
 
 
-async def _refresh_state(triggered_by: str) -> None:
+async def _refresh_state(triggered_by: str, panel: state.Panel | None = None) -> None:
+    panel = panel if panel is not None else state.primary
     now_pacific = datetime.now(_PACIFIC)
     offset = now_pacific.utcoffset()
     assert offset is not None
     utc_offset_min = int(offset.total_seconds() / 60)
-    await state.normal_queue.put({"cmd": "TIME", "epoch": int(_time.time()), "utc_offset_min": utc_offset_min})
+    await panel.normal_queue.put({"cmd": "TIME", "epoch": int(_time.time()), "utc_offset_min": utc_offset_min})
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -118,6 +128,6 @@ async def _refresh_state(triggered_by: str) -> None:
         return
 
     for item in items:
-        await state.normal_queue.put(item)
+        await panel.normal_queue.put(item)
 
     log_event(logger, "state_refreshed", triggered_by=triggered_by)

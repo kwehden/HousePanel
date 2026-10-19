@@ -96,6 +96,12 @@ jobs:
       - run: ruff check --select E9,F63,F7,F82 services tools
       - run: python -m mypy --config-file mypy.ini
       - run: pytest tools/tests -q
+      - name: Verify per-panel alert isolation
+        run: |
+          python tools/check_panel_alerts.py
+          docker run --rm -v "$PWD:/work:ro" -w /work --entrypoint /bin/promtool \
+            quay.io/prometheus/prometheus@sha256:378f4e03703557d1c6419e6caccf922f96e6d88a530f7431d66a4c4f4b1000fe \
+            test rules tools/tests/panel-alerts.test.yml
 
   image:
     runs-on: ubuntu-latest

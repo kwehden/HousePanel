@@ -13,13 +13,13 @@ from transport_adapter.main import app
 
 @pytest.fixture(autouse=True)
 def isolated_connection_state(monkeypatch):
-    monkeypatch.setattr(state, "normal_queue", ObservedQueue())
-    monkeypatch.setattr(state, "interrupt_queue", asyncio.Queue(maxsize=50))
-    monkeypatch.setattr(state, "active_websocket", None)
-    monkeypatch.setattr(state, "active_websocket_task", None)
-    monkeypatch.setattr(state, "websocket_handover_lock", asyncio.Lock())
-    monkeypatch.setattr(state, "giga_connected", False)
-    monkeypatch.setattr(state, "ota_paused", False)
+    monkeypatch.setattr(state.primary, "normal_queue", ObservedQueue())
+    monkeypatch.setattr(state.primary, "interrupt_queue", asyncio.Queue(maxsize=50))
+    monkeypatch.setattr(state.primary, "active_websocket", None)
+    monkeypatch.setattr(state.primary, "active_websocket_task", None)
+    monkeypatch.setattr(state.primary, "websocket_handover_lock", asyncio.Lock())
+    monkeypatch.setattr(state.primary, "giga_connected", False)
+    monkeypatch.setattr(state.primary, "ota_paused", False)
     monkeypatch.setattr("transport_adapter.state_refresh.request_poller_refresh", lambda: None)
     monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", AsyncMock())
 
@@ -101,8 +101,8 @@ async def test_replacement_discards_ota_backlog_before_delayed_hello(monkeypatch
     old, replacement = SocketHarness(), SocketHarness()
     fresh = {"cmd": "TIME", "epoch": 456}
 
-    async def refresh(*, triggered_by):
-        await state.normal_queue.put(fresh)
+    async def refresh(*, triggered_by, panel=None):
+        await state.primary.normal_queue.put(fresh)
 
     monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
     monkeypatch.setattr("transport_adapter.state_refresh.request_poller_refresh", lambda: None)
@@ -113,16 +113,16 @@ async def test_replacement_discards_ota_backlog_before_delayed_hello(monkeypatch
         await asyncio.wait_for(old.sent.wait(), 1)
         # Let the writer observe OTA pause before building its backlog.
         await asyncio.sleep(0.1)
-        state.normal_queue.put_nowait({"cmd": "TIME", "epoch": 123})
+        state.primary.normal_queue.put_nowait({"cmd": "TIME", "epoch": 123})
         if termination == "disconnect":
             old.disconnect()
             await asyncio.wait_for(tasks[0], 1)
 
-        state.normal_queue.waiting.clear()
+        state.primary.normal_queue.waiting.clear()
         tasks.append(asyncio.create_task(giga_websocket_handler(replacement.websocket)))
         await asyncio.wait_for(replacement.reading.wait(), 1)
-        assert state.active_websocket is replacement.websocket
-        assert state.normal_queue.empty()
+        assert state.primary.active_websocket is replacement.websocket
+        assert state.primary.normal_queue.empty()
         assert not replacement.sent.is_set()
 
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
@@ -132,10 +132,10 @@ async def test_replacement_discards_ota_backlog_before_delayed_hello(monkeypatch
         assert response.status_code == 202
         await asyncio.sleep(0.1)
         assert not replacement.sent.is_set()
-        assert state.normal_queue.qsize() == 1
+        assert state.primary.normal_queue.qsize() == 1
 
         interrupt = {"cmd": "TIME", "epoch": 777}
-        state.interrupt_queue.put_nowait(interrupt)
+        state.primary.interrupt_queue.put_nowait(interrupt)
         await asyncio.wait_for(replacement.sent.wait(), 1)
         assert [json.loads(item["text"]) for item in replacement.messages
                 if item["type"] == "websocket.send"] == [interrupt]
@@ -157,8 +157,8 @@ async def test_interrupted_ota_does_not_pause_replacement(monkeypatch, terminati
     old, replacement = SocketHarness(), SocketHarness()
     frame = {"cmd": "TIME", "epoch": 123}
 
-    async def refresh(*, triggered_by):
-        await state.normal_queue.put(frame)
+    async def refresh(*, triggered_by, panel=None):
+        await state.primary.normal_queue.put(frame)
 
     monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
     tasks = [asyncio.create_task(giga_websocket_handler(old.websocket))]
@@ -166,25 +166,25 @@ async def test_interrupted_ota_does_not_pause_replacement(monkeypatch, terminati
         await asyncio.wait_for(old.accepted.wait(), 1)
         old.incoming.put_nowait({"type": "websocket.receive", "text": '{"cmd":"OTA-START"}'})
         await asyncio.wait_for(old.sent.wait(), 1)
-        assert state.ota_paused
+        assert state.primary.ota_paused
         if termination == "disconnect":
             old.disconnect()
             await asyncio.wait_for(tasks[0], 1)
-            assert not state.ota_paused
+            assert not state.primary.ota_paused
         elif termination == "cancel":
             tasks[0].cancel()
             await asyncio.gather(tasks[0], return_exceptions=True)
-            assert not state.ota_paused
+            assert not state.primary.ota_paused
 
         replacement.hello()
         tasks.append(asyncio.create_task(giga_websocket_handler(replacement.websocket)))
         await asyncio.wait_for(replacement.sent.wait(), 1)
         await asyncio.gather(tasks[0], return_exceptions=True)
-        assert not state.ota_paused
-        assert state.giga_connected
+        assert not state.primary.ota_paused
+        assert state.primary.giga_connected
         assert [json.loads(item["text"]) for item in replacement.messages
                 if item["type"] == "websocket.send"] == [frame]
-        assert state.normal_queue.empty()
+        assert state.primary.normal_queue.empty()
         replacement.disconnect()
         await asyncio.wait_for(tasks[1], 1)
     finally:
@@ -196,15 +196,15 @@ async def test_interrupted_ota_does_not_pause_replacement(monkeypatch, terminati
 async def test_handover_stops_old_reader_and_writer_before_hello(monkeypatch, queue_name):
     old, replacement = SocketHarness(), SocketHarness()
     frame = {"cmd": "TIME", "epoch": 123}
-    old_queue = state.normal_queue
+    old_queue = state.primary.normal_queue
     hello_observations = []
     hello_seen = asyncio.Event()
 
-    async def refresh(*, triggered_by):
-        if state.active_websocket is old.websocket:
+    async def refresh(*, triggered_by, panel=None):
+        if state.primary.active_websocket is old.websocket:
             return
         hello_observations.append((old.read_cancelled.is_set(), old_queue.cancelled.is_set()))
-        await getattr(state, queue_name).put(frame)
+        await getattr(state.primary, queue_name).put(frame)
         # Refresh performs HTTP I/O after enqueueing TIME in production.
         await asyncio.sleep(0)
         hello_seen.set()
@@ -226,12 +226,12 @@ async def test_handover_stops_old_reader_and_writer_before_hello(monkeypatch, qu
         assert [json.loads(item["text"]) for item in replacement.messages
                 if item["type"] == "websocket.send"] == [frame]
         assert {"type": "websocket.close", "code": 1012, "reason": ""} in old.messages
-        assert state.active_websocket is replacement.websocket
+        assert state.primary.active_websocket is replacement.websocket
         replacement.disconnect()
         await asyncio.wait_for(new_task, 1)
-        assert state.active_websocket_task is None
-        assert state.active_websocket is None
-        assert not state.giga_connected
+        assert state.primary.active_websocket_task is None
+        assert state.primary.active_websocket is None
+        assert not state.primary.giga_connected
     finally:
         await stop_handlers(*[task for task in (old_task, new_task) if task is not None])
 
@@ -242,29 +242,29 @@ async def test_three_connections_serialize_handover_and_keep_latest_owner():
     old.hello()
     tasks = [asyncio.create_task(giga_websocket_handler(old.websocket))]
     try:
-        await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
+        await asyncio.wait_for(state.primary.normal_queue.waiting.wait(), 1)
         tasks.append(asyncio.create_task(giga_websocket_handler(middle.websocket)))
         await asyncio.wait_for(old.close_started.wait(), 1)
         tasks.append(asyncio.create_task(giga_websocket_handler(latest.websocket)))
         await asyncio.wait_for(latest.accepted.wait(), 1)
-        assert state.active_websocket is None
-        assert state.active_websocket_task is None
+        assert state.primary.active_websocket is None
+        assert state.primary.active_websocket_task is None
         old.close_release.set()
         await asyncio.wait_for(middle.close_started.wait(), 1)
         await asyncio.wait_for(asyncio.gather(*tasks[:2]), 1)
-        assert state.active_websocket is latest.websocket
-        assert state.giga_connected
-        state.normal_queue.waiting.clear()
+        assert state.primary.active_websocket is latest.websocket
+        assert state.primary.giga_connected
+        state.primary.normal_queue.waiting.clear()
         latest.hello()
-        await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
-        await state.normal_queue.put({"cmd": "TIME", "epoch": 456})
+        await asyncio.wait_for(state.primary.normal_queue.waiting.wait(), 1)
+        await state.primary.normal_queue.put({"cmd": "TIME", "epoch": 456})
         await asyncio.wait_for(latest.sent.wait(), 1)
         assert not any(item["type"] == "websocket.send" for item in middle.messages)
         latest.disconnect()
         await asyncio.wait_for(tasks[-1], 1)
-        assert state.active_websocket_task is None
-        assert state.active_websocket is None
-        assert not state.giga_connected
+        assert state.primary.active_websocket_task is None
+        assert state.primary.active_websocket is None
+        assert not state.primary.giga_connected
     finally:
         old.close_release.set()
         await stop_handlers(*tasks)
@@ -277,7 +277,7 @@ async def test_handover_cancels_in_progress_refresh_before_replacement_refresh(m
     refresh_stopped = asyncio.Event()
     calls = 0
 
-    async def refresh(*, triggered_by):
+    async def refresh(*, triggered_by, panel=None):
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -288,7 +288,7 @@ async def test_handover_cancels_in_progress_refresh_before_replacement_refresh(m
                 refresh_stopped.set()
         else:
             assert refresh_stopped.is_set()
-            await state.normal_queue.put({"cmd": "TIME", "epoch": 789})
+            await state.primary.normal_queue.put({"cmd": "TIME", "epoch": 789})
 
     monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
     old.hello()
@@ -303,7 +303,7 @@ async def test_handover_cancels_in_progress_refresh_before_replacement_refresh(m
         assert refresh_stopped.is_set()
         replacement.disconnect()
         await asyncio.wait_for(tasks[1], 1)
-        assert state.active_websocket_task is None
+        assert state.primary.active_websocket_task is None
     finally:
         await stop_handlers(*tasks)
 
@@ -314,17 +314,17 @@ async def test_handler_cancellation_joins_session_and_queue_waiter():
     socket.hello()
     task = asyncio.create_task(giga_websocket_handler(socket.websocket))
     try:
-        await asyncio.wait_for(state.normal_queue.waiting.wait(), 1)
-        session = state.active_websocket_task
+        await asyncio.wait_for(state.primary.normal_queue.waiting.wait(), 1)
+        session = state.primary.active_websocket_task
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, 1)
         assert session is not None and session.done()
         assert socket.read_cancelled.is_set()
-        assert state.normal_queue.cancelled.is_set()
-        assert state.active_websocket_task is None
-        assert state.active_websocket is None
-        assert not state.giga_connected
+        assert state.primary.normal_queue.cancelled.is_set()
+        assert state.primary.active_websocket_task is None
+        assert state.primary.active_websocket is None
+        assert not state.primary.giga_connected
     finally:
         await stop_handlers(task)
 
@@ -337,24 +337,24 @@ async def test_repeated_reconnects_leave_no_connection_tasks(send_hello):
     previous_session = None
     try:
         for _ in range(25):
-            state.normal_queue.waiting.clear()
+            state.primary.normal_queue.waiting.clear()
             socket = SocketHarness()
             if send_hello:
                 socket.hello()
             tasks.append(asyncio.create_task(giga_websocket_handler(socket.websocket)))
-            ready = state.normal_queue.waiting if send_hello else socket.reading
+            ready = state.primary.normal_queue.waiting if send_hello else socket.reading
             await asyncio.wait_for(ready.wait(), 1)
             if len(tasks) > 1:
                 await asyncio.wait_for(tasks[-2], 1)
                 assert previous_session is not None and previous_session.done()
-            assert state.active_websocket is socket.websocket
-            previous_session = state.active_websocket_task
+            assert state.primary.active_websocket is socket.websocket
+            previous_session = state.primary.active_websocket_task
         socket.disconnect()
         await asyncio.wait_for(tasks[-1], 1)
         assert previous_session is not None and previous_session.done()
-        assert state.active_websocket_task is None
-        assert state.active_websocket is None
-        assert not state.giga_connected
+        assert state.primary.active_websocket_task is None
+        assert state.primary.active_websocket is None
+        assert not state.primary.giga_connected
         assert asyncio.all_tasks() <= baseline
     finally:
         await stop_handlers(*tasks)
@@ -364,11 +364,11 @@ async def test_repeated_reconnects_leave_no_connection_tasks(send_hello):
 async def test_hello_refresh_larger_than_queue_capacity_does_not_deadlock(monkeypatch):
     socket = SocketHarness()
     finished = asyncio.Event()
-    frames = [{"cmd": "TIME", "epoch": i} for i in range(state.normal_queue.maxsize + 10)]
+    frames = [{"cmd": "TIME", "epoch": i} for i in range(state.primary.normal_queue.maxsize + 10)]
 
-    async def refresh(*, triggered_by):
+    async def refresh(*, triggered_by, panel=None):
         for frame in frames:
-            await state.normal_queue.put(frame)
+            await state.primary.normal_queue.put(frame)
         finished.set()
 
     monkeypatch.setattr("transport_adapter.state_refresh._refresh_state", refresh)
@@ -400,12 +400,12 @@ async def test_malformed_and_non_object_frames_do_not_crash_parser():
 
 @pytest.mark.asyncio
 async def test_new_connection_closes_superseded_socket_and_cleans_owned_tasks():
-    state.normal_queue = asyncio.Queue(maxsize=50)
-    state.interrupt_queue = asyncio.Queue(maxsize=50)
-    state.ota_paused = False
+    state.primary.normal_queue = asyncio.Queue(maxsize=50)
+    state.primary.interrupt_queue = asyncio.Queue(maxsize=50)
+    state.primary.ota_paused = False
     previous = MagicMock()
     previous.close = AsyncMock()
-    state.active_websocket = previous
+    state.primary.active_websocket = previous
     release = asyncio.Event()
 
     async def receive():
@@ -420,11 +420,11 @@ async def test_new_connection_closes_superseded_socket_and_cleans_owned_tasks():
     try:
         await asyncio.sleep(0)
         previous.close.assert_awaited_once_with(code=1012)
-        assert state.active_websocket is websocket
+        assert state.primary.active_websocket is websocket
         release.set()
         await task
-        assert state.active_websocket is None
-        assert not state.giga_connected
+        assert state.primary.active_websocket is None
+        assert not state.primary.giga_connected
     finally:
         release.set()
         await task

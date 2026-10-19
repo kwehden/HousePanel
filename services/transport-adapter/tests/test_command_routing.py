@@ -9,11 +9,11 @@ from transport_adapter.main import app
 
 def _reset_state():
     """Replace module-level queues and reset flags between tests."""
-    state.interrupt_queue = asyncio.Queue(maxsize=50)
-    state.normal_queue = asyncio.Queue(maxsize=50)
-    state.giga_connected = False
-    state.ota_paused = False
-    state.active_websocket = None
+    state.primary.interrupt_queue = asyncio.Queue(maxsize=50)
+    state.primary.normal_queue = asyncio.Queue(maxsize=50)
+    state.primary.giga_connected = False
+    state.primary.ota_paused = False
+    state.primary.active_websocket = None
 
 
 @pytest.fixture(autouse=True)
@@ -36,9 +36,9 @@ async def test_doorbell_goes_to_interrupt_queue():
             "event_id": "test-uuid",
         })
     assert resp.status_code == 202
-    assert state.interrupt_queue.qsize() == 1
-    assert state.normal_queue.qsize() == 0
-    item = state.interrupt_queue.get_nowait()
+    assert state.primary.interrupt_queue.qsize() == 1
+    assert state.primary.normal_queue.qsize() == 0
+    item = state.primary.interrupt_queue.get_nowait()
     assert item["cmd"] == "DOORBELL"
 
 
@@ -55,9 +55,9 @@ async def test_normal_command_goes_to_normal_queue():
             "event_id": "test-uuid-2",
         })
     assert resp.status_code == 202
-    assert state.normal_queue.qsize() == 1
-    assert state.interrupt_queue.qsize() == 0
-    item = state.normal_queue.get_nowait()
+    assert state.primary.normal_queue.qsize() == 1
+    assert state.primary.interrupt_queue.qsize() == 0
+    item = state.primary.normal_queue.get_nowait()
     assert item["cmd"] == "TICKER-APPEND"
     assert item["text"] == "hello"
 
@@ -67,7 +67,7 @@ async def test_normal_queue_full_returns_503():
     """Posting to a full normal_queue returns 503."""
     # Fill queue to capacity
     for i in range(50):
-        state.normal_queue.put_nowait({"cmd": "TICKER-APPEND", "seq": i})
+        state.primary.normal_queue.put_nowait({"cmd": "TICKER-APPEND", "seq": i})
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
@@ -92,31 +92,31 @@ async def test_normal_queue_full_returns_503():
 @pytest.mark.asyncio
 async def test_command_that_exactly_fills_the_queue_is_accepted():
     from transport_adapter.routes import CommandRequest, post_command
-    while not state.normal_queue.empty():
-        state.normal_queue.get_nowait()
-    for _ in range(state.normal_queue.maxsize - 1):
-        state.normal_queue.put_nowait({"cmd": "FILLER"})
+    while not state.primary.normal_queue.empty():
+        state.primary.normal_queue.get_nowait()
+    for _ in range(state.primary.normal_queue.maxsize - 1):
+        state.primary.normal_queue.put_nowait({"cmd": "FILLER"})
 
     resp = await post_command(CommandRequest(
         cmd="SYSMON-UPDATE", priority=0, payload={"temp_c": 20.0}, event_id="fits"))
 
     assert resp.status_code == 202
-    assert state.normal_queue.qsize() == state.normal_queue.maxsize
+    assert state.primary.normal_queue.qsize() == state.primary.normal_queue.maxsize
 
 
 @pytest.mark.asyncio
 async def test_command_that_would_overflow_is_refused_with_503():
     from transport_adapter.routes import CommandRequest, post_command
-    while not state.normal_queue.empty():
-        state.normal_queue.get_nowait()
-    for _ in range(state.normal_queue.maxsize):
-        state.normal_queue.put_nowait({"cmd": "FILLER"})
+    while not state.primary.normal_queue.empty():
+        state.primary.normal_queue.get_nowait()
+    for _ in range(state.primary.normal_queue.maxsize):
+        state.primary.normal_queue.put_nowait({"cmd": "FILLER"})
 
     resp = await post_command(CommandRequest(
         cmd="SYSMON-UPDATE", priority=0, payload={"temp_c": 20.0}, event_id="over"))
 
     assert resp.status_code == 503
-    assert state.normal_queue.qsize() == state.normal_queue.maxsize
+    assert state.primary.normal_queue.qsize() == state.primary.normal_queue.maxsize
 
 
 @pytest.mark.asyncio
@@ -124,29 +124,29 @@ async def test_doorbell_bypasses_the_full_normal_queue():
     """Priority 99 uses the interrupt queue, so a full normal queue must not
     swallow a doorbell press."""
     from transport_adapter.routes import CommandRequest, post_command
-    while not state.normal_queue.empty():
-        state.normal_queue.get_nowait()
-    while not state.interrupt_queue.empty():
-        state.interrupt_queue.get_nowait()
-    for _ in range(state.normal_queue.maxsize):
-        state.normal_queue.put_nowait({"cmd": "FILLER"})
+    while not state.primary.normal_queue.empty():
+        state.primary.normal_queue.get_nowait()
+    while not state.primary.interrupt_queue.empty():
+        state.primary.interrupt_queue.get_nowait()
+    for _ in range(state.primary.normal_queue.maxsize):
+        state.primary.normal_queue.put_nowait({"cmd": "FILLER"})
 
     resp = await post_command(CommandRequest(
         cmd="DOORBELL", priority=99, payload={}, event_id="ding"))
 
     assert resp.status_code == 202
-    assert state.interrupt_queue.qsize() >= 1
+    assert state.primary.interrupt_queue.qsize() >= 1
 
 
 @pytest.mark.asyncio
 async def test_full_interrupt_queue_returns_backpressure():
-    for _ in range(state.interrupt_queue.maxsize):
-        state.interrupt_queue.put_nowait({"cmd": "FILLER"})
+    for _ in range(state.primary.interrupt_queue.maxsize):
+        state.primary.interrupt_queue.put_nowait({"cmd": "FILLER"})
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/internal/commands", json={
             "cmd": "DOORBELL", "priority": 99, "payload": {}, "event_id": "full"})
     assert response.status_code == 503
-    assert state.interrupt_queue.qsize() == state.interrupt_queue.maxsize
+    assert state.primary.interrupt_queue.qsize() == state.primary.interrupt_queue.maxsize
 
 
 @pytest.mark.asyncio
@@ -155,7 +155,7 @@ async def test_invalid_calendar_payload_is_rejected_without_queueing():
         response = await client.post("/internal/commands", json={
             "cmd": "CALENDAR-UPDATE", "priority": 5, "payload": {"events": [42]}, "event_id": "bad"})
     assert response.status_code == 422
-    assert state.normal_queue.empty()
+    assert state.primary.normal_queue.empty()
 
 
 @pytest.mark.asyncio
@@ -163,4 +163,4 @@ async def test_oversized_request_is_rejected_before_parsing():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/internal/commands", content=b"x" * (512 * 1024 + 1))
     assert response.status_code == 413
-    assert state.normal_queue.empty()
+    assert state.primary.normal_queue.empty()

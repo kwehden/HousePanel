@@ -79,6 +79,40 @@ spec:
               connected. It has been absent for over 15 minutes, which usually
               means a firmware hang or a WiFi drop.
 
+        - alert: HousePanelNamedPanelDisconnected
+          expr: housepanel_panel_session_connected == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Panel {{ $labels.panel_id }} is disconnected"
+            description: >-
+              This panel has been absent for 15 minutes. Another connected
+              panel must not hide a local firmware or WiFi failure.
+
+        - alert: HousePanelNamedPanelStale
+          expr: |
+            (
+              (
+                (time() - housepanel_panel_session_last_frame_timestamp_seconds > 300)
+                and on(panel_id, instance, job) (housepanel_panel_session_connected == 1)
+              )
+              or
+              (
+                (housepanel_panel_session_connected == 1)
+                unless on(panel_id, instance, job) housepanel_panel_session_last_frame_timestamp_seconds
+              )
+            )
+            unless on(panel_id, instance, job) (housepanel_panel_session_ota_paused == 1)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Panel {{ $labels.panel_id }} is not receiving frames"
+            description: >-
+              This panel remains connected but has received no frames for over
+              five minutes, independently of delivery to the other panel.
+
         # Self-tuning per source: the rule reads each service's own declared
         # interval rather than hard-coding a threshold, so weather (900s) and
         # sysmon (20s) are both judged against what they actually promise.
