@@ -79,3 +79,11 @@ async def test_poll_error_retains_last_events(caplog: pytest.LogCaptureFixture) 
     assert any("poll_error" in r.getMessage() for r in caplog.records), (
         "Expected poll_error log record"
     )
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("calendar_poller.poller.async_request", send)

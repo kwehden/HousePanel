@@ -39,6 +39,7 @@ async def test_forward_success_posts_to_correct_url() -> None:
     with patch("ring_integration.main.httpx.AsyncClient", return_value=mock_client):
         await forward_to_aggregator(EVENT_DATA)
 
+
     mock_client.post.assert_awaited_once_with(
         "http://mock-aggregator:8001/internal/events",
         json=EVENT_DATA,
@@ -74,3 +75,11 @@ async def test_forward_http_error_does_not_propagate() -> None:
 
     with patch("ring_integration.main.httpx.AsyncClient", return_value=mock_client):
         await forward_to_aggregator(EVENT_DATA)
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("ring_integration.main.async_request", send)

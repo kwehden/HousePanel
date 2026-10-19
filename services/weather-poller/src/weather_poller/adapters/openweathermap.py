@@ -4,6 +4,7 @@ from datetime import datetime, timezone, date
 from zoneinfo import ZoneInfo
 
 import httpx
+from shared.http import request
 
 _PACIFIC = ZoneInfo("America/Los_Angeles")
 
@@ -31,7 +32,7 @@ class OpenWeatherMapAdapter:
             "units": "metric",
         }
         try:
-            response = self._client.get(url, params=params)
+            response = request(self._client, "GET", url, params=params)
         except httpx.HTTPError as exc:
             raise WeatherAPIError(
                 provider=self.provider_name,
@@ -74,7 +75,7 @@ class OpenWeatherMapAdapter:
             "units": "metric",
         }
         try:
-            response = self._client.get(url, params=params)
+            response = request(self._client, "GET", url, params=params)
             if response.status_code >= 300:
                 return []
         except Exception:

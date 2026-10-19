@@ -174,3 +174,11 @@ async def test_rejected_ping_counts_as_a_failure():
     assert json.loads(resp.body)["refreshed"] == 1
     assert "refresh_ping_rejected" in events
     assert "pollers_refreshed" not in events
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("aggregator.routes.async_request", send)

@@ -225,6 +225,15 @@ async def test_non_200_from_board_records_a_poll_failure() -> None:
     assert metrics.poll_success_total == 0
 
 
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("sysmon_poller.main.async_request", send)
+
+
+
 @pytest.mark.asyncio
 async def test_error_payload_records_a_poll_failure() -> None:
     await _run(_make_client(latest_json={"error": "no data", "t": 31.5}))

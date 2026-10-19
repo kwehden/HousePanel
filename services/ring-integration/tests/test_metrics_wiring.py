@@ -59,3 +59,11 @@ async def test_connection_gauge_tracks_listener_state():
 async def test_no_poll_interval_declared():
     body = (await ring_main.metrics_endpoint()).body.decode()
     assert "housepanel_source_poll_interval_seconds" not in body
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate business logic; image contracts exercise real I/O.
+    async def send(client, method, url, **kwargs):
+        return await getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("ring_integration.main.async_request", send)

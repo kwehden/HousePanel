@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import httpx
+from shared.http import request
 
 from shared.models import WeatherConditions, ForecastDay
 from weather_poller.adapter import WeatherAPIError
@@ -39,7 +40,7 @@ class WttrInAdapter:
         # Empty location → wttr.in uses the request IP for geolocation
         url = f"https://wttr.in/{self._location}"
         try:
-            response = self._client.get(url, params={"format": "j1"})
+            response = request(self._client, "GET", url, params={"format": "j1"})
         except httpx.HTTPError as exc:
             raise WeatherAPIError(
                 provider=self.provider_name,

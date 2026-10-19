@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import httpx
+from shared.http import request
 
 from shared.models import WeatherConditions
 from weather_poller.adapter import WeatherAPIError
@@ -30,7 +31,7 @@ class GoogleWeatherAdapter:
             "location.longitude": self._lon,
         }
         try:
-            response = self._client.get(url, params=params)
+            response = request(self._client, "GET", url, params=params)
         except httpx.HTTPError as exc:
             raise WeatherAPIError(
                 provider=self.provider_name,

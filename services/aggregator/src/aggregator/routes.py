@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import os
 import httpx
+from shared.http import async_request
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, Response
 from shared.models import InternalEventRequest
@@ -152,7 +153,7 @@ async def internal_refresh() -> JSONResponse:
     async def _ping(url: str) -> bool:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.post(f"{url}/internal/poll-now")
+                resp = await async_request(client, "POST", f"{url}/internal/poll-now")
             if resp.status_code not in (200, 202):
                 log_event(logger, "refresh_ping_rejected", level="warning", url=url, status=resp.status_code)
                 return False

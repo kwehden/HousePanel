@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import httpx
+from shared.http import async_request
 from shared.logging import make_logger, log_event
 from shared.metrics import SourceMetrics
 from shared.contracts import JsonObject
@@ -16,7 +17,7 @@ async def forward_to_aggregator(event_data: JsonObject) -> None:
     aggregator_url = os.environ.get("AGGREGATOR_URL", "http://housepanel-aggregator:8001")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(f"{aggregator_url}/internal/events", json=event_data)
+            resp = await async_request(client, "POST", f"{aggregator_url}/internal/events", json=event_data)
             resp.raise_for_status()
             log_event(logger, "event_forwarded", http_status=resp.status_code)
         metrics.record_push(True)

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
+from shared.http import async_request
 from fastapi import FastAPI
 from fastapi.responses import Response
 
@@ -37,7 +38,7 @@ async def forward_to_aggregator(event_data: dict) -> None:
     )
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(
+            resp = await async_request(client, "POST",
                 f"{aggregator_url}/internal/events", json=event_data
             )
             resp.raise_for_status()

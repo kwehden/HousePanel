@@ -6,6 +6,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+import httpx
 
 from shared.models import CalendarEvent
 
@@ -49,9 +50,8 @@ def test_client_instantiates_with_mocked_adc() -> None:
 def test_fetch_events_parses_response_correctly() -> None:
     """fetch_events returns correct CalendarEvent list; all_day set for date-only items."""
     mock_creds = _mock_credentials(valid=True)
-    mock_response = MagicMock()
-    mock_response.is_success = True
-    mock_response.iter_bytes.return_value = [json.dumps(_FAKE_CALENDAR_RESPONSE).encode()]
+    mock_response = httpx.Response(200, json=_FAKE_CALENDAR_RESPONSE,
+                                 request=httpx.Request("GET", "http://calendar"))
 
     mock_http_instance = MagicMock()
     mock_http_instance.__enter__ = MagicMock(return_value=mock_http_instance)
@@ -86,9 +86,8 @@ def test_fetch_events_parses_response_correctly() -> None:
 def test_event_summary_not_logged(capsys: pytest.CaptureFixture) -> None:
     """fetch_events must not log the summary of any calendar event."""
     mock_creds = _mock_credentials(valid=True)
-    mock_response = MagicMock()
-    mock_response.is_success = True
-    mock_response.iter_bytes.return_value = [json.dumps(_FAKE_CALENDAR_RESPONSE).encode()]
+    mock_response = httpx.Response(200, json=_FAKE_CALENDAR_RESPONSE,
+                                 request=httpx.Request("GET", "http://calendar"))
 
     mock_http_instance = MagicMock()
     mock_http_instance.__enter__ = MagicMock(return_value=mock_http_instance)
@@ -122,8 +121,8 @@ def test_http_and_auth_sessions_reused_and_closed():
     from datetime import datetime, timezone
 
     http = MagicMock()
-    http.stream.return_value.__enter__.return_value.is_success = True
-    http.stream.return_value.__enter__.return_value.iter_bytes.return_value = [b'{"items":[]}']
+    http.stream.return_value.__enter__.return_value = httpx.Response(
+        200, json={"items": []}, request=httpx.Request("GET", "http://calendar"))
     creds = _mock_credentials(valid=False)
     with patch("google.auth.default", return_value=(creds, "test")), \
          patch.dict(os.environ, {"GOOGLE_CALENDAR_ID": "one,two"}), \

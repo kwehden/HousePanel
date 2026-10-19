@@ -95,3 +95,11 @@ def test_non_2xx_raises_weather_api_error(status):
     with pytest.raises(WeatherAPIError) as exc:
         adapter.fetch_current()
     assert exc.value.http_status == status
+
+
+@pytest.fixture(autouse=True)
+def http_boundary(monkeypatch):
+    # These unit tests isolate parsing; image contracts exercise real streams.
+    def send(client, method, url, **kwargs):
+        return getattr(client, method.lower())(url, **kwargs)
+    monkeypatch.setattr("weather_poller.adapters.wttr_in.request", send)
