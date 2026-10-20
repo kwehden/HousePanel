@@ -38,6 +38,8 @@ class MemorySample(BaseModel):
             raise ValueError("complete stack sample must contain threads")
         if self.gui_used > self.gui_total or self.gui_largest_free > self.gui_total - self.gui_used:
             raise ValueError("GUI statistics exceed pool capacity")
+        if not self.gui_used <= self.gui_peak <= self.gui_total:
+            raise ValueError("GUI peak must be between usage and fixed pool capacity")
         return self
 
 

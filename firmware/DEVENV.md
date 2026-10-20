@@ -101,7 +101,10 @@ Reported memory domains are separate and must not be summed as total free RAM:
   are omitted from Prometheus; heap and LVGL values remain available.
 - LVGL's separate display pool: current/peak usage, capacity and largest free
   block. A falling largest block can expose fragmentation even with stable
-  total usage. Stack statistics cover the M7 RTOS threads only; M4 firmware,
+  total usage. Capacity is the configured `LV_MEM_SIZE` (128 KiB), not the
+  monitor's usable-block sum, which varies with block-header overhead. This
+  fixed-pool firmware does not add/remove pools dynamically. Stack statistics
+  cover the M7 RTOS threads only; M4 firmware,
   framebuffers/SDRAM and untracked static/external allocations are not measured.
 
 For the pinned LVGL 9.5.0, `max_used` is a byte count; `used_pct` is its separate

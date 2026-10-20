@@ -46,11 +46,17 @@ async def read_samples(panel, *samples, hello=True):
     {"stack_high_water": 2001}, {"stack_min_free": 2001}, {"stack_min_free": 1201},
     {"stack_count": 33}, {"stack_count": 0}, {"stack_complete": 1},
     {"gui_used": 1025}, {"gui_largest_free": 1000},
+    {"gui_peak": 99}, {"gui_peak": 1025}, {"gui_peak": 2**32 - 1},
     {"panel_id": "panel-2"}, {"anything": "unbounded"},
 ])
 def test_strict_bounded_schema(changes):
     with pytest.raises(ValidationError):
         MemorySample.model_validate(sample(**changes))
+
+
+@pytest.mark.parametrize("peak", [100, 1024])
+def test_gui_peak_accepts_exact_usage_and_capacity_boundaries(peak):
+    assert MemorySample.model_validate(sample(gui_peak=peak)).gui_peak == peak
 
 
 @pytest.mark.asyncio

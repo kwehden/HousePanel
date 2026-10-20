@@ -65,7 +65,9 @@ size_t memory_collect(char* buffer, size_t capacity) {
     sample.gui_used = gui.total_size - gui.free_size;
     // LVGL 9.5.0 max_used is bytes; used_pct is the separate percentage field.
     sample.gui_peak = gui.max_used;
-    sample.gui_total = gui.total_size;
+    // Monitor total_size excludes allocator block headers and varies with
+    // fragmentation. Peak usage is bounded by the configured fixed capacity.
+    sample.gui_total = LV_MEM_SIZE;
     sample.gui_largest_free = gui.free_biggest_size;
     return memory_format(buffer, capacity, boot_id, sample);
 }

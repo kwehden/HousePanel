@@ -6,6 +6,7 @@
 #define OS_STACK_WATERMARK 1
 #define LV_STDLIB_BUILTIN 1
 #define LV_USE_STDLIB_MALLOC 1
+#define LV_MEM_SIZE 131072
 using osThreadId_t = void*;
 struct trng_t {};
 extern bool rng_ok;
@@ -38,4 +39,4 @@ struct lv_mem_monitor_t {
     size_t total_size, free_cnt, free_size, free_biggest_size, used_cnt, max_used;
     uint8_t used_pct, frag_pct;
 };
-inline void lv_mem_monitor(lv_mem_monitor_t* s) { *s = {131072, 2, 100000, 90000, 4, 40000, 24, 10}; }
+inline void lv_mem_monitor(lv_mem_monitor_t* s) { *s = {130000, 2, 100000, 90000, 4, 40000, 24, 10}; }
