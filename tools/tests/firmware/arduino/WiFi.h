@@ -11,6 +11,8 @@ public:
     size_t rx_offset = 0;
     bool alive = false, short_bulk_write = false;
     unsigned stops = 0;
+    int fail_write_at = -1;
+    int frame_write_count = 0;
     WiFiClient() { instance = this; }
     using Print::write;
     int connect(IPAddress, uint16_t) override { return connect("test", 80); }
@@ -23,9 +25,14 @@ public:
     void stop() override { alive = false; ++stops; }
     uint8_t connected() override { return alive; }
     operator bool() override { return alive; }
-    size_t write(uint8_t c) override { tx.push_back(c); return 1; }
+    size_t write(uint8_t c) override {
+        if (frame_write_count++ == fail_write_at) return 0;
+        tx.push_back(c);
+        return 1;
+    }
     size_t write(const uint8_t* data, size_t length) override {
         if (!alive) return 0;
+        if (frame_write_count++ == fail_write_at) return 0;
         size_t accepted = short_bulk_write && length > 4 ? length - 1 : length;
         tx.insert(tx.end(), data, data + accepted);
         return accepted;

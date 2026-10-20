@@ -11,7 +11,6 @@ from transport_adapter import state
 from transport_adapter.memory_telemetry import MemorySample
 from transport_adapter.routes import internal_health, metrics
 from transport_adapter.ws_handler import _read_loop, giga_websocket_handler
-from transport_adapter.main import app
 from tests.test_ws_handler import SocketHarness, stop_handlers
 
 
@@ -141,8 +140,9 @@ async def test_partial_stack_sample_exports_heap_but_not_partial_stack_totals():
     assert "housepanel_panel_memory_heap_allocated_bytes" in body
 
 
-def test_real_legacy_and_named_sockets_receive_telemetry_without_echo_or_fanout():
-    with TestClient(app) as client:
+def test_real_legacy_and_named_sockets_receive_telemetry_without_echo_or_fanout(websocket_lifecycle):
+    observed_app, disconnect = websocket_lifecycle
+    with TestClient(observed_app) as client:
         with client.websocket_connect("/ws/panel") as primary:
             with client.websocket_connect("/ws/panels/panel-2") as second:
                 for ws in (primary, second):
@@ -160,6 +160,8 @@ def test_real_legacy_and_named_sockets_receive_telemetry_without_echo_or_fanout(
                 body = client.get("/metrics").text
                 assert 'housepanel_panel_memory_heap_allocated_bytes{panel_id="primary"} 1111' in body
                 assert 'housepanel_panel_memory_heap_allocated_bytes{panel_id="panel-2"} 1222' in body
+                disconnect(second, "/ws/panels/panel-2")
+            disconnect(primary, "/ws/panel")
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include "command_parser.h"
 #include "memory_telemetry.h"
+#include "checked_wifi_client.h"
 
 // This macro changes WebSocketClient's layout. Set it globally for all sketch
 // AND library translation units, never by a sketch-only #define.
@@ -16,7 +17,7 @@ void ws_force_reconnect();
 void ws_send_hello(bool post_ota);
 void ws_loop();
 void ws_send_memory();
-bool ws_send_text(WebSocketClient& socket, const char* buffer, size_t length);
+bool ws_send_text(WebSocketClient& socket, CheckedWiFiClient& network, const char* buffer, size_t length);
 
 extern CommandFrame g_last_frame;
 extern bool g_frame_ready;

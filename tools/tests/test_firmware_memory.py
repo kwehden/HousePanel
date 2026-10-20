@@ -67,3 +67,12 @@ def test_ci_compiles_both_identities_with_only_dummy_credentials(tmp_path, monke
     assert '-DHOUSEPANEL_PANEL_ID="primary" -DHOUSEPANEL_HOSTNAME="housepanel"' in calls[0][5]
     assert '-DHOUSEPANEL_PANEL_ID="panel-2" -DHOUSEPANEL_HOSTNAME="housepanel-2"' in calls[1][5]
     assert (sketch / "secrets.h").read_text() == "PRIVATE MUST NOT BE COPIED"
+
+
+def test_project_pool_capacity_does_not_depend_on_local_core_edits(tmp_path):
+    (tmp_path / "lv_conf_9.h").write_text("#define LV_MEM_SIZE (64 * 1024U)\n")
+    subprocess.run([
+        "g++", "-x", "c++", "-std=c++17", "-fsyntax-only", "-",
+        "-I", str(tmp_path), "-I", str(ROOT / "firmware/housepanel-giga"),
+    ], input='#include "housepanel_lv_conf.h"\nstatic_assert(LV_MEM_SIZE == 131072, "project pool capacity");\n',
+        text=True, check=True)

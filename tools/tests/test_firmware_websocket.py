@@ -40,7 +40,7 @@ def compiled_send_path(tmp_path_factory, request):
     sketch = directory / "sketch"
     sketch.mkdir()
     for name in ("ws_client.cpp", "ws_client.h", "memory_format.cpp", "memory_telemetry.h",
-                 "command_parser.h", "config.h"):
+                 "command_parser.h", "config.h", "checked_wifi_client.h"):
         shutil.copyfile(ROOT / "firmware/housepanel-giga" / name, sketch / name)
     shutil.copyfile(ROOT / "firmware/housepanel-giga/secrets.h.example", sketch / "secrets.h")
     fixtures = ROOT / "tools/tests/firmware"
@@ -74,6 +74,9 @@ def test_actual_websocket_send_path_round_trip(compiled_send_path):
     assert len(rows["reconnected"]) == 2
     assert json.loads(rows["reconnected"][0])["cmd"] == "HELLO"
     MemorySample.model_validate_json(rows["reconnected"][1])
+    assert len(rows["after_header_failures"]) == 2
+    assert json.loads(rows["after_header_failures"][0])["cmd"] == "HELLO"
+    MemorySample.model_validate_json(rows["after_header_failures"][1])
     assert rows["exact_capacity"] == [b"x" * 768]
 
 

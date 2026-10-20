@@ -68,7 +68,10 @@ their existing distinct hostnames. CI compiles both with dummy credentials;
 it never uploads or publishes firmware binaries. Build local release binaries
 only after review because the local `secrets.h` is embedded in them.
 `housepanel_lv_conf.h` starts from core 4.5.0's display configuration and enables
-the fonts used by the existing UI. The build helper supplies `LV_CONF_PATH` to
+the fonts used by the existing UI. It explicitly selects a 128 KiB LVGL pool;
+the stock core defaults to 64 KiB, while the previously provisioned local build
+used 128 KiB. This removes another dependency on installed-library edits.
+The build helper supplies `LV_CONF_PATH` to
 both C and C++; no edits to installed Arduino libraries are required.
 The helper also applies `WS_TX_BUFFER_SIZE=768` globally, including the library
 compilation. Defining it only inside sketch headers would change object layout
@@ -76,6 +79,8 @@ without changing ArduinoHttpClient's separately compiled code. A compile-time
 assertion rejects the library's 128-byte default. Send code checks begin/write/end
 results, closes failed sockets and reconstructs the client in-place on reconnect
 to clear any abandoned transmit state, with no heap-owned client allocation.
+`CheckedWiFiClient` records short writes for every underlying opcode, length,
+mask and payload write, including header failures ignored by the pinned library.
 
 Each connected board sends one `MEMORY` JSON sample after HELLO and then every
 60 seconds over its existing socket. The backend binds it to that socket's
@@ -165,6 +170,7 @@ before compiling its unmodified HttpClient/WebSocketClient/b64 implementations
 with the actual firmware sender and serializer for both panel identities. Arduino
 and RTOS compatibility interfaces and collector measurements are simulated. It decodes the resulting masked
 wire frames and validates normal/maximal payloads against the backend schema.
-It covers the exact transmit limit, over-limit rejection, short network writes,
+It covers the exact transmit limit, over-limit rejection, failure injection at
+every header/mask/payload write position, short payload writes,
 busy TX, disconnected sends, reconnect recovery and cadence. The test also fails
 if the build omits the global buffer flag or if the cached dependency is modified.

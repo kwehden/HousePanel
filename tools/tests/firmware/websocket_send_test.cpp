@@ -34,7 +34,7 @@ static void emit(const char* name, const std::vector<uint8_t>& wire) {
 }
 
 int main() {
-    WiFiClient& network = *WiFiClient::instance;
+    CheckedWiFiClient& network = static_cast<CheckedWiFiClient&>(*WiFiClient::instance);
     ws_init();
     assert(ws_connect());  // Real upstream HTTP upgrade response parser.
     network.tx.clear();
@@ -74,6 +74,29 @@ int main() {
     emit("reconnected", network.tx);
     assert(samples == 1);
 
+    // Extended-size telemetry writes: opcode, length marker, two length bytes,
+    // mask, payload. Fail each independently, including headers the library ignores.
+    for (int position = 0; position < 6; ++position) {
+        char frame[300];
+        memset(frame, 'x', sizeof(frame));
+        WebSocketClient client(network, "test", 80);
+        // Establish a separate real upgraded session before injecting TX failure.
+        network.stop();
+        network.fail_write_at = -1;
+        assert(client.begin("/test") == 0);
+        network.frame_write_count = 0;
+        network.fail_write_at = position;
+        assert(!ws_send_text(client, network, frame, sizeof(frame)));
+        assert(network.write_failed() && !network.alive);
+    }
+    network.fail_write_at = -1;
+    assert(ws_connect());
+    network.tx.clear();
+    ws_send_hello(false);
+    ws_send_memory();
+    assert(ws_connected());
+    emit("after_header_failures", network.tx);
+
     // Guard the dependency overflow and busy-TX error paths using a real client.
     network.stop();
     WebSocketClient client(network, "test", 80);
@@ -81,14 +104,14 @@ int main() {
     network.tx.clear();
     char boundary[WS_TX_BUFFER_SIZE + 1] = {};
     memset(boundary, 'x', sizeof(boundary));
-    assert(!ws_send_text(client, boundary, 0));
-    assert(!ws_send_text(client, boundary, sizeof(boundary)));
+    assert(!ws_send_text(client, network, boundary, 0));
+    assert(!ws_send_text(client, network, boundary, sizeof(boundary)));
     assert(network.tx.empty());
-    assert(ws_send_text(client, boundary, WS_TX_BUFFER_SIZE));
+    assert(ws_send_text(client, network, boundary, WS_TX_BUFFER_SIZE));
     emit("exact_capacity", network.tx);
     network.tx.clear();
     assert(client.beginMessage(TYPE_TEXT) == 0);
-    assert(!ws_send_text(client, "{}", 2));
+    assert(!ws_send_text(client, network, "{}", 2));
     assert(!network.alive && network.tx.empty());
     ws_force_reconnect();
 }
