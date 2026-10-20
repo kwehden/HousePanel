@@ -14,11 +14,13 @@ def main():
         shutil.copytree(ROOT / "firmware/housepanel-giga", sketch,
                         ignore=shutil.ignore_patterns("secrets.h"))
         shutil.copyfile(sketch / "secrets.h.example", sketch / "secrets.h")
+        lv_config = f'-DLV_CONF_PATH="{sketch / "housepanel_lv_conf.h"}"'
         for panel, hostname in (("primary", "housepanel"), ("panel-2", "housepanel-2")):
             subprocess.run([
                 "arduino-cli", "compile", "--fqbn", "arduino:mbed_giga:giga",
                 "--build-property",
-                f'compiler.cpp.extra_flags=-DHOUSEPANEL_PANEL_ID="{panel}" -DHOUSEPANEL_HOSTNAME="{hostname}"',
+                f'compiler.cpp.extra_flags=-DHOUSEPANEL_PANEL_ID="{panel}" -DHOUSEPANEL_HOSTNAME="{hostname}" {lv_config}',
+                "--build-property", f"compiler.c.extra_flags={lv_config}",
                 "--build-path", str(root / (panel + "-build")), str(sketch),
             ], check=True)
 

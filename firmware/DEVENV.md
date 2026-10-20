@@ -13,7 +13,8 @@
 - ArduinoJson — JSON parsing
 
 ## Commands
-- **Compile:** `arduino-cli compile --fqbn arduino:mbed_giga:giga firmware/housepanel-giga/`
+- **Compile check, both identities, dummy credentials:** `python tools/ci_firmware.py`
+- **Local release compile:** set `LV_CONF_PATH` for both C and C++ as shown below.
 - **Upload:** `arduino-cli upload --fqbn arduino:mbed_giga:giga --port <PORT> firmware/housepanel-giga/`
 - **Monitor:** `arduino-cli monitor --port <PORT>`
 
@@ -37,7 +38,8 @@ with a different DHCP hostname and backend identity:
 ```sh
 arduino-cli compile --fqbn arduino:mbed_giga:giga \
   --output-dir build/panel-2-firmware \
-  --build-property 'compiler.cpp.extra_flags=-DHOUSEPANEL_PANEL_ID="panel-2" -DHOUSEPANEL_HOSTNAME="housepanel-2"' \
+  --build-property "compiler.cpp.extra_flags=-DHOUSEPANEL_PANEL_ID=\"panel-2\" -DHOUSEPANEL_HOSTNAME=\"housepanel-2\" -DLV_CONF_PATH=\"$PWD/firmware/housepanel-giga/housepanel_lv_conf.h\"" \
+  --build-property "compiler.c.extra_flags=-DLV_CONF_PATH=\"$PWD/firmware/housepanel-giga/housepanel_lv_conf.h\"" \
   firmware/housepanel-giga/
 arduino-cli board list
 arduino-cli upload --fqbn arduino:mbed_giga:giga --port <SECOND_GIGA_PORT> \
@@ -65,6 +67,9 @@ does not flash hardware. Both identities compile from the same sketch using
 their existing distinct hostnames. CI compiles both with dummy credentials;
 it never uploads or publishes firmware binaries. Build local release binaries
 only after review because the local `secrets.h` is embedded in them.
+`housepanel_lv_conf.h` starts from core 4.5.0's display configuration and enables
+the fonts used by the existing UI. The build helper supplies `LV_CONF_PATH` to
+both C and C++; no edits to installed Arduino libraries are required.
 
 Each connected board sends one `MEMORY` JSON sample after HELLO and then every
 60 seconds over its existing socket. The backend binds it to that socket's
