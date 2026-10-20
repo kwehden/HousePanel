@@ -45,12 +45,12 @@ int main(int argc, char** argv) {
     command.insert(command.end(), 32, 0xa0);
     auto query = connect(command);
     run();
-    assert(!query->connected && mounts == 1);
+    assert(!query->connected && mounts == 1 && sockets_live == 0);
     std::cout << output(query);
     if (mode == "status_soak") {
         for (unsigned i = 0; i < 10000; ++i) {
             auto repeat = connect(command); run(1);
-            assert(!repeat->connected);
+            assert(!repeat->connected && sockets_live == 0);
         }
         assert(mounts == 1 && arms == 0 && resets == 0);
         return 0;
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
     auto update = connect({data.begin(), data.begin() + 141});
     run();
     if (mode == "bad_auth" || mode == "expired") {
-        assert(!update->connected && arms == 0 && resets == 0);
+        assert(!update->connected && arms == 0 && resets == 0 && sockets_live == 0);
         return 0;
     }
     assert(output(update) == "{\"accepted\":true}\n");
@@ -85,5 +85,5 @@ int main(int argc, char** argv) {
         std::ifstream partial(std::string(root) + "/UPDATE.PART");
         assert(!partial.good());
     }
-    assert(mounts == 1 && !update->connected);
+    assert(mounts == 1 && !update->connected && sockets_live == 0);
 }

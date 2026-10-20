@@ -9,40 +9,44 @@ inline uint32_t fake_ms = 0;
 inline bool wifi_up = true;
 inline unsigned entropy_counter = 0;
 inline int mounts = 0, arms = 0, resets = 0, listens = 0;
+inline int sockets_live = 0;
 inline bool arm_failure = false;
 inline bool layout_ok = true, bootloader_capable = true, storage_ready = true, entropy_ok = true;
 inline uint32_t millis() { return fake_ms; }
 constexpr int WL_CONNECTED = 1;
-struct FakeWifi { int status() { return wifi_up ? WL_CONNECTED : 0; } };
+struct FakeWifi { int status() { return wifi_up ? WL_CONNECTED : 0; } void* getNetwork() { return nullptr; } };
 inline FakeWifi WiFi;
 struct Link { std::vector<uint8_t> in, out; size_t cursor = 0; bool connected = true; };
 inline std::deque<std::shared_ptr<Link>> pending;
-class WiFiClient {
+using nsapi_error_t = int;
+constexpr int NSAPI_ERROR_OK = 0, NSAPI_ERROR_WOULD_BLOCK = -3001, NSAPI_SOCKET = 1, NSAPI_REUSEADDR = 2;
+class TCPSocket {
     std::shared_ptr<Link> link;
 public:
-    WiFiClient() = default;
-    explicit WiFiClient(std::shared_ptr<Link> value) : link(value) {}
-    explicit operator bool() const { return link && link->connected; }
-    int available() { return link ? link->in.size() - link->cursor : 0; }
-    int read() { return available() ? link->in[link->cursor++] : -1; }
-    int read(uint8_t* out, size_t count) {
-        count = std::min(count, static_cast<size_t>(available()));
+    TCPSocket() = default;
+    explicit TCPSocket(std::shared_ptr<Link> value) : link(value) { ++sockets_live; }
+    ~TCPSocket() { if (link) --sockets_live; }
+    int recv(void* destination, size_t count) {
+        auto out = static_cast<uint8_t*>(destination);
+        count = std::min(count, link->in.size() - link->cursor);
+        if (!count) return link->connected ? NSAPI_ERROR_WOULD_BLOCK : 0;
         for (size_t i = 0; i < count; ++i) out[i] = link->in[link->cursor++];
         return count;
     }
-    size_t write(const uint8_t* data, size_t count) { link->out.insert(link->out.end(), data, data + count); return count; }
-    void setTimeout(unsigned) {}
-    void stop() { if (link) link->connected = false; }
-    bool connected() { return link && link->connected; }
-};
-class WiFiServer {
-public:
-    explicit WiFiServer(uint16_t) {}
-    void begin() { ++listens; }
-    void end() {}
-    WiFiClient accept() {
-        if (pending.empty()) return {};
-        auto link = pending.front(); pending.pop_front(); return WiFiClient(link);
+    int send(const void* source, size_t count) {
+        auto data = static_cast<const uint8_t*>(source);
+        link->out.insert(link->out.end(), data, data + count); return count;
+    }
+    void set_timeout(unsigned) {}
+    void set_blocking(bool) {}
+    int close() { if (link) link->connected = false; return 0; }
+    int open(void*) { return 0; }
+    void setsockopt(int, int, void*, size_t) {}
+    int bind(uint16_t) { return 0; }
+    int listen(int) { ++listens; return 0; }
+    TCPSocket* accept(int* error) {
+        if (pending.empty()) { *error = NSAPI_ERROR_WOULD_BLOCK; return nullptr; }
+        auto link = pending.front(); pending.pop_front(); *error = 0; return new TCPSocket(link);
     }
 };
 constexpr int QSPI_FLASH_FATFS_MBR = 0;

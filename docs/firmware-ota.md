@@ -131,6 +131,9 @@ per boot; failed initialization is not retried in a loop. This avoids repeated
 allocations in the upstream library's `begin()` path. Socket and filesystem
 libraries still own internal allocations; host tests do not establish a hardware
 memory plateau or bound physical flash latency.
+Accepted Mbed sockets are explicitly owned and deleted after close. This bypasses
+core 4.5.0's WiFiClient accepted-socket path, which closes its non-owned socket
+without deleting it, and avoids that wrapper's per-connection reader task.
 
 ## Acceptance and Memory Baselines
 

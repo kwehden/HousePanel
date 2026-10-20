@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <TCPSocket.h>
+#include <memory>
 
 #if __has_include("ota_secrets.h")
 #include "ota_secrets.h"
@@ -23,16 +25,19 @@ namespace {
 // Mount once per boot. The upstream begin() owns lifetime allocations, so never
 // repeat it per request or on failure; never format storage from a running panel.
 Arduino_Portenta_OTA_QSPI updater(QSPI_FLASH_FATFS_MBR, 2);
-WiFiServer server(OTA_PORT);
-WiFiClient peer;
+TCPSocket server;
+// Core 4.5.0's WiFiClient closes but does not delete accepted sockets. Own the
+// raw accepted Mbed socket explicitly; also avoid its per-connection reader task.
+std::unique_ptr<TCPSocket> peer;
 OtaReceiver receiver;
 constexpr char identity[] = "HousePanel identity:" HOUSEPANEL_PANEL_ID ":" HOUSEPANEL_HOSTNAME ":end";
 uint8_t header[OTA_HEADER_SIZE], buffer[1024], nonce[32];
 char boot_id[33] = {}, nonce_hex[65] = {};
 size_t header_size = 0;
-bool ready = false, listening = false, active = false, receiving = false, nonce_valid = false;
+bool ready = false, listening = false, receiving = false, nonce_valid = false;
 bool querying = false;
 uint32_t connected_at = 0, progress_at = 0, challenge_at = 0;
+uint32_t listen_attempt_at = 0;
 const char* reason = "not_initialized";
 
 bool random_bytes(uint8_t* out, size_t size) {
@@ -83,12 +88,15 @@ public:
 } sink;
 void close_peer() {
     receiver.abort();
-    peer.stop();
-    active = receiving = querying = false;
+    if (peer) peer->close();
+    peer.reset();
+    receiving = querying = false;
     header_size = 0;
 }
 void reply(const char* text) {
-    peer.write(reinterpret_cast<const uint8_t*>(text), strlen(text));
+    peer->set_timeout(1000);
+    peer->send(text, strlen(text));
+    peer->set_blocking(false);
 }
 void status() {
     nonce_valid = ready && random_bytes(nonce, sizeof(nonce));
@@ -141,28 +149,42 @@ void ota_init() {
 void ota_loop() {
     if (!ready) return;
     if (WiFi.status() != WL_CONNECTED) {
-        if (active) close_peer();
-        if (listening) server.end();
+        if (peer) close_peer();
+        if (listening) server.close();
         listening = false;
         return;
     }
-    if (!listening) { server.begin(); listening = true; }
-    if (!active) {
-        peer = server.accept();
-        if (!peer) return;
-        peer.setTimeout(1000);
-        active = true;
+    if (!listening) {
+        if (listen_attempt_at && (millis() - listen_attempt_at) < 5000) return;
+        listen_attempt_at = millis();
+        if (server.open(WiFi.getNetwork()) != NSAPI_ERROR_OK) { server.close(); return; }
+        int reuse = 1;
+        server.setsockopt(NSAPI_SOCKET, NSAPI_REUSEADDR, &reuse, sizeof(reuse));
+        server.set_blocking(false);
+        if (server.bind(OTA_PORT) != NSAPI_ERROR_OK || server.listen(1) != NSAPI_ERROR_OK) { server.close(); return; }
+        listening = true;
+    }
+    if (!peer) {
+        nsapi_error_t error = NSAPI_ERROR_OK;
+        peer.reset(server.accept(&error));
+        if (error != NSAPI_ERROR_OK || !peer) {
+            close_peer();
+            if (error != NSAPI_ERROR_WOULD_BLOCK) { server.close(); listening = false; }
+            return;
+        }
+        peer->set_blocking(false);
         connected_at = progress_at = millis();
     }
     uint32_t now = millis();
     if ((now - connected_at) > 180000 || (now - progress_at) > 5000) { close_peer(); return; }
     // One bounded chunk per UI loop. Idle/partial clients cannot stall the display.
-    size_t budget = sizeof(buffer);
-    while (!receiving && peer.available() > 0 && budget--) {
-        int value = peer.read();
-        if (value < 0) { close_peer(); return; }
-        header[header_size++] = static_cast<uint8_t>(value);
-        progress_at = now;
+    int actual = peer->recv(buffer, sizeof(buffer));
+    if (actual == NSAPI_ERROR_WOULD_BLOCK) return;
+    if (actual <= 0) { close_peer(); return; }
+    progress_at = now;
+    size_t used = 0;
+    while (!receiving && used < static_cast<size_t>(actual)) {
+        header[header_size++] = buffer[used++];
         if (header_size == 8) {
             querying = memcmp(header, "HPOTA1S\n", 8) == 0;
             if (!querying && memcmp(header, "HPOTA1U\n", 8) != 0) { close_peer(); return; }
@@ -177,11 +199,8 @@ void ota_loop() {
             reply("{\"accepted\":true}\n");
         }
     }
-    if (receiving && peer.available() > 0) {
-        int available = peer.available();
-        size_t count = static_cast<size_t>(available) < sizeof(buffer) ? static_cast<size_t>(available) : sizeof(buffer);
-        int actual = peer.read(buffer, count);
-        if (actual <= 0 || !receiver.feed(buffer, static_cast<size_t>(actual))) {
+    if (receiving && used < static_cast<size_t>(actual)) {
+        if (!receiver.feed(buffer + used, static_cast<size_t>(actual) - used)) {
             reply("{\"ok\":false}\n"); close_peer(); return;
         }
         progress_at = now;
@@ -192,5 +211,4 @@ void ota_loop() {
             if (armed) updater.reset();
         }
     }
-    if (active && !peer.connected() && peer.available() == 0) close_peer();
 }

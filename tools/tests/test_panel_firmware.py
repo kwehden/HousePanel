@@ -293,7 +293,7 @@ def runtime(tmp_path_factory, request):
     shutil.copyfile(firmware / "secrets.h.example", sketch / "secrets.h")
     (sketch / "ota_secrets.h").write_text(f'#define HOUSEPANEL_OTA_KEY_HEX "{KEY.hex()}"\n')
     fixtures = ROOT / "tools/tests/firmware"
-    for name in ("WiFi.h", "Arduino_Portenta_OTA.h", "mbed.h", "hal/trng_api.h"):
+    for name in ("WiFi.h", "Arduino_Portenta_OTA.h", "mbed.h", "hal/trng_api.h", "TCPSocket.h"):
         path = directory / name
         path.parent.mkdir(exist_ok=True)
         path.write_text('#include "ota_runtime.h"\n')
