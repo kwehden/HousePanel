@@ -84,8 +84,9 @@ hardware-random 64-bit boot ID and 64-bit kernel uptime. Reconnects preserve
 boot identity; hardware reboots change it. Entropy initialization or kernel
 lock failure suppresses a sample. Compile-time checks require heap statistics,
 RTOS stack watermarking and the LVGL built-in allocator. Core 4.5.0 enables
-these. No GC, heap walking, task creation or application-level heap allocation
-is added by the collector. The existing WebSocket implementation may allocate
+these. No GC, task creation or sampler-owned heap allocation is added. Sampling
+does scan RTOS stack watermarks and walk the bounded LVGL pool once per minute;
+runtime overhead still needs on-board verification. The existing WebSocket implementation may allocate
 while sending, as it already does for HELLO.
 
 Reported memory domains are separate and must not be summed as total free RAM:
@@ -102,6 +103,12 @@ Reported memory domains are separate and must not be summed as total free RAM:
   block. A falling largest block can expose fragmentation even with stable
   total usage. Stack statistics cover the M7 RTOS threads only; M4 firmware,
   framebuffers/SDRAM and untracked static/external allocations are not measured.
+
+For the pinned LVGL 9.5.0, `max_used` is a byte count; `used_pct` is its separate
+percentage field. The fixture mirrors that layout and asserts a 40000-byte peak
+independently of a 24-percent current usage field. Upstream definitions:
+[lv_mem.h](https://github.com/lvgl/lvgl/blob/v9.5.0/src/stdlib/lv_mem.h#L32-L41)
+and [allocator accounting](https://github.com/lvgl/lvgl/blob/v9.5.0/src/stdlib/builtin/lv_mem_core_builtin.c#L129-L138).
 
 `/internal/health` exposes the last sample, boot ID and server receipt timestamp
 under `panels.<id>.memory`. Prometheus exports gauges with only the existing

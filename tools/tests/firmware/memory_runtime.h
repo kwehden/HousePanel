@@ -33,5 +33,9 @@ inline uint32_t osThreadEnumerate(osThreadId_t* threads, uint32_t count) {
 }
 inline uint32_t osThreadGetStackSize(osThreadId_t) { return 1024; }
 inline uint32_t osThreadGetStackSpace(osThreadId_t) { return 256; }
-struct lv_mem_monitor_t { size_t total_size, free_size, max_used, free_biggest_size; };
-inline void lv_mem_monitor(lv_mem_monitor_t* s) { *s = {131072, 100000, 40000, 90000}; }
+// Match the pinned LVGL v9.5.0 lv_mem.h layout and units, including separate percentages.
+struct lv_mem_monitor_t {
+    size_t total_size, free_cnt, free_size, free_biggest_size, used_cnt, max_used;
+    uint8_t used_pct, frag_pct;
+};
+inline void lv_mem_monitor(lv_mem_monitor_t* s) { *s = {131072, 2, 100000, 90000, 4, 40000, 24, 10}; }

@@ -63,6 +63,7 @@ size_t memory_collect(char* buffer, size_t capacity) {
     lv_mem_monitor_t gui = {};
     lv_mem_monitor(&gui);
     sample.gui_used = gui.total_size - gui.free_size;
+    // LVGL 9.5.0 max_used is bytes; used_pct is the separate percentage field.
     sample.gui_peak = gui.max_used;
     sample.gui_total = gui.total_size;
     sample.gui_largest_free = gui.free_biggest_size;

@@ -35,6 +35,7 @@ def test_native_collector_wire_contract_cadence_and_bounds(tmp_path):
     assert normal["stack_min_free"] == 256
     assert normal["stack_complete"] is True
     assert normal["gui_used"] == 31072
+    assert normal["gui_peak"] == 40000  # Bytes, not the distinct 24-percent used_pct field.
     assert truncated["stack_complete"] is False and truncated["stack_count"] == 32
     assert empty["stack_count"] == 0 and empty["stack_min_free"] == 0
     assert empty["stack_complete"] is True  # Backend deliberately rejects no-thread samples.
