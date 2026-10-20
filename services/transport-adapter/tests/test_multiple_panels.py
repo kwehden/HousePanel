@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from transport_adapter import state
-from transport_adapter.main import app, _hourly_time_sync
+from transport_adapter.main import _hourly_time_sync
 from transport_adapter.routes import CommandRequest, internal_health, metrics, post_command
 from transport_adapter.ws_handler import giga_websocket_handler
 from tests.test_ws_handler import SocketHarness, stop_handlers
@@ -194,8 +194,9 @@ async def test_hourly_time_sync_broadcasts_to_both_panels(monkeypatch):
     assert all(f["cmd"] == "TIME" for f in frames)
 
 
-def test_legacy_and_named_websocket_routes_both_deliver_the_http_broadcast():
-    with TestClient(app) as client:
+def test_legacy_and_named_websocket_routes_both_deliver_the_http_broadcast(websocket_lifecycle):
+    observed_app, disconnect = websocket_lifecycle
+    with TestClient(observed_app) as client:
         with client.websocket_connect("/ws/panel") as first:
             first.send_json({"cmd": "HELLO"})
             assert first.receive_json()["cmd"] == "TIME"
@@ -210,3 +211,5 @@ def test_legacy_and_named_websocket_routes_both_deliver_the_http_broadcast():
                 health = client.get("/internal/health").json()["panels"]
                 assert len([p for p in health.values() if p["connected"]]) == 2
                 assert health["panel-2"]["hostname"] == "housepanel-2"
+                disconnect(second, "/ws/panels/panel-2")
+            disconnect(first, "/ws/panel")

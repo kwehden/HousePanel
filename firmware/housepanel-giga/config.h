@@ -11,4 +11,4 @@
 #define HOUSEPANEL_HOSTNAME "housepanel"
 #endif
 #define TRANSPORT_ADAPTER_WS_PATH "/ws/panels/" HOUSEPANEL_PANEL_ID
-#define FIRMWARE_VERSION "0.5.1"
+#define FIRMWARE_VERSION "0.5.2"
