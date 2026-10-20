@@ -32,6 +32,8 @@ class MemorySample(BaseModel):
     def consistent(self) -> "MemorySample":
         if self.heap_current > self.heap_peak:
             raise ValueError("current heap exceeds high-water mark")
+        if self.heap_current > self.heap_reserved:
+            raise ValueError("current heap exceeds reservation")
         if self.stack_high_water > self.stack_reserved or self.stack_min_free > self.stack_reserved - self.stack_high_water:
             raise ValueError("stack statistics exceed reservation")
         if self.stack_complete and self.stack_count == 0:

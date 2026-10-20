@@ -14,7 +14,7 @@ def main():
         shutil.copytree(ROOT / "firmware/housepanel-giga", sketch,
                         ignore=shutil.ignore_patterns("secrets.h"))
         shutil.copyfile(sketch / "secrets.h.example", sketch / "secrets.h")
-        lv_config = f'-DLV_CONF_PATH="{sketch / "housepanel_lv_conf.h"}"'
+        lv_config = f'-DLV_CONF_PATH="{sketch / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768'
         for panel, hostname in (("primary", "housepanel"), ("panel-2", "housepanel-2")):
             subprocess.run([
                 "arduino-cli", "compile", "--fqbn", "arduino:mbed_giga:giga",

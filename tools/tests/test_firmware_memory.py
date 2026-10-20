@@ -56,7 +56,8 @@ def test_ci_compiles_both_identities_with_only_dummy_credentials(tmp_path, monke
         copied = Path(command[-1])
         assert (copied / "secrets.h").read_text() == "DUMMY CREDENTIALS"
         assert f'-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}"' in command[5]
-        assert command[7] == f'compiler.c.extra_flags=-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}"'
+        assert "-DWS_TX_BUFFER_SIZE=768" in command[5]
+        assert command[7] == f'compiler.c.extra_flags=-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768'
         calls.append(command)
 
     monkeypatch.setattr(ci_firmware, "ROOT", tmp_path)

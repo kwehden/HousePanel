@@ -39,7 +39,8 @@ async def read_samples(panel, *samples, hello=True):
 
 
 @pytest.mark.parametrize("changes", [
-    {"heap_current": -1}, {"heap_peak": 999}, {"alloc_count": 2**32},
+    {"heap_current": -1}, {"heap_peak": 999}, {"heap_reserved": 999},
+    {"heap_reserved": 0}, {"alloc_count": 2**32},
     {"alloc_count": True}, {"alloc_count": "1"}, {"version": True},
     {"version": 2}, {"uptime_ms": -1}, {"uptime_ms": 2**63},
     {"boot_id": "x" * 17}, {"boot_id": "invalid"},
@@ -57,6 +58,11 @@ def test_strict_bounded_schema(changes):
 @pytest.mark.parametrize("peak", [100, 1024])
 def test_gui_peak_accepts_exact_usage_and_capacity_boundaries(peak):
     assert MemorySample.model_validate(sample(gui_peak=peak)).gui_peak == peak
+
+
+def test_heap_reservation_boundary_and_historical_peak():
+    assert MemorySample.model_validate(sample(heap_reserved=1000)).heap_reserved == 1000
+    assert MemorySample.model_validate(sample(heap_current=0, heap_reserved=0)).heap_current == 0
 
 
 @pytest.mark.asyncio

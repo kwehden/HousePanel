@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+constexpr size_t MEMORY_FRAME_CAPACITY = 768;
+
 struct MemorySample {
     uint64_t uptime_ms;
     uint32_t heap_current, heap_peak, heap_reserved, alloc_count, alloc_failures;

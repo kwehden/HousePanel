@@ -38,8 +38,8 @@ with a different DHCP hostname and backend identity:
 ```sh
 arduino-cli compile --fqbn arduino:mbed_giga:giga \
   --output-dir build/panel-2-firmware \
-  --build-property "compiler.cpp.extra_flags=-DHOUSEPANEL_PANEL_ID=\"panel-2\" -DHOUSEPANEL_HOSTNAME=\"housepanel-2\" -DLV_CONF_PATH=\"$PWD/firmware/housepanel-giga/housepanel_lv_conf.h\"" \
-  --build-property "compiler.c.extra_flags=-DLV_CONF_PATH=\"$PWD/firmware/housepanel-giga/housepanel_lv_conf.h\"" \
+  --build-property "compiler.cpp.extra_flags=-DHOUSEPANEL_PANEL_ID=\"panel-2\" -DHOUSEPANEL_HOSTNAME=\"housepanel-2\" -DLV_CONF_PATH=\"$PWD/firmware/housepanel-giga/housepanel_lv_conf.h\" -DWS_TX_BUFFER_SIZE=768" \
+  --build-property "compiler.c.extra_flags=-DLV_CONF_PATH=\"$PWD/firmware/housepanel-giga/housepanel_lv_conf.h\" -DWS_TX_BUFFER_SIZE=768" \
   firmware/housepanel-giga/
 arduino-cli board list
 arduino-cli upload --fqbn arduino:mbed_giga:giga --port <SECOND_GIGA_PORT> \
@@ -70,6 +70,12 @@ only after review because the local `secrets.h` is embedded in them.
 `housepanel_lv_conf.h` starts from core 4.5.0's display configuration and enables
 the fonts used by the existing UI. The build helper supplies `LV_CONF_PATH` to
 both C and C++; no edits to installed Arduino libraries are required.
+The helper also applies `WS_TX_BUFFER_SIZE=768` globally, including the library
+compilation. Defining it only inside sketch headers would change object layout
+without changing ArduinoHttpClient's separately compiled code. A compile-time
+assertion rejects the library's 128-byte default. Send code checks begin/write/end
+results, closes failed sockets and reconstructs the client in-place on reconnect
+to clear any abandoned transmit state, with no heap-owned client allocation.
 
 Each connected board sends one `MEMORY` JSON sample after HELLO and then every
 60 seconds over its existing socket. The backend binds it to that socket's
@@ -140,6 +146,7 @@ Local regression commands (no hardware access):
 
 ```sh
 pytest tools/tests/test_firmware_memory.py -q
+pytest tools/tests/test_firmware_websocket.py -q
 pytest services/transport-adapter/tests -q --asyncio-mode=auto
 python tools/ci_firmware.py
 ```
@@ -151,3 +158,13 @@ buffer truncation, unavailable entropy, failed kernel locking and thread-buffer
 overflow. These tests and cross-compilation do not establish on-device runtime
 accuracy; verify both panels' boot IDs, sample freshness and memory values after
 the separately approved flash.
+
+The WebSocket regression downloads the official ArduinoHttpClient 0.6.1 archive
+into ignored `build/test-deps` and verifies the Arduino library-index SHA-256
+before compiling its unmodified HttpClient/WebSocketClient/b64 implementations
+with the actual firmware sender and serializer for both panel identities. Arduino
+and RTOS compatibility interfaces and collector measurements are simulated. It decodes the resulting masked
+wire frames and validates normal/maximal payloads against the backend schema.
+It covers the exact transmit limit, over-limit rejection, short network writes,
+busy TX, disconnected sends, reconnect recovery and cadence. The test also fails
+if the build omits the global buffer flag or if the cached dependency is modified.
