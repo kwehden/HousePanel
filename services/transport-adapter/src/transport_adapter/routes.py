@@ -8,6 +8,7 @@ from shared.metrics import CONTENT_TYPE, Metric, render
 from transport_adapter import state
 from transport_adapter.ws_handler import giga_websocket_handler
 from transport_adapter.stream_decompose import decompose_command
+from transport_adapter.memory_telemetry import MEMORY_METRICS
 
 router = APIRouter()
 
@@ -60,6 +61,8 @@ async def internal_health() -> dict[str, Any]:
             "normal_queue_depth": p.normal_depth,
             "interrupt_queue_depth": p.interrupt_queue.qsize(),
             "frames_sent_total": p.frames_sent_total,
+            "memory": ({**p.memory.model_dump(), "received_at": p.memory_received_at}
+                       if p.memory is not None and p.giga_connected else None),
         } for p in state.panels.values()},
     }
 
@@ -109,6 +112,22 @@ async def metrics() -> Response:
         ))
     for panel in state.panels.values():
         labels = {"panel_id": panel.panel_id}
+        if panel.giga_connected and panel.memory is not None:
+            sample = panel.memory
+            out.extend([
+                Metric("housepanel_panel_memory_last_sample_timestamp_seconds",
+                       "Server receipt time; samples can become stale without disconnecting.",
+                       "gauge", panel.memory_received_at or 0, labels),
+                Metric("housepanel_panel_memory_uptime_seconds", "Board uptime; resets on reboot.",
+                       "gauge", sample.uptime_ms / 1000, labels),
+                Metric("housepanel_panel_memory_stack_complete", "All RTOS stacks fit the fixed sampling buffer.",
+                       "gauge", int(sample.stack_complete), labels),
+            ])
+            for field, (name, help_text) in MEMORY_METRICS.items():
+                if field.startswith("stack_") and not sample.stack_complete:
+                    continue
+                out.append(Metric("housepanel_panel_memory_" + name, help_text,
+                                  "gauge", getattr(sample, field), labels))
         out.extend([
             Metric("housepanel_panel_session_connected", "Named panel WebSocket connected.",
                    "gauge", int(panel.giga_connected), labels),

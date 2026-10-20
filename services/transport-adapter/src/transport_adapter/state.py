@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 from fastapi import WebSocket
+from transport_adapter.memory_telemetry import MemorySample
 
 @dataclass
 class Panel:
@@ -24,6 +25,14 @@ class Panel:
     normal_getter: asyncio.Task[dict[str, Any]] | None = None
     pending_normal: dict[str, Any] | None = None
     hostname: str | None = None
+    memory: MemorySample | None = None
+    memory_received_at: float | None = None
+    memory_received_monotonic: float | None = None
+
+    def clear_memory(self) -> None:
+        self.memory = None
+        self.memory_received_at = None
+        self.memory_received_monotonic = None
 
     @property
     def normal_depth(self) -> int:

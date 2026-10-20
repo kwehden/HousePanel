@@ -1,14 +1,18 @@
 #include "ws_client.h"
 #include "config.h"
+#include "memory_telemetry.h"
+#include <mbed.h>
 
 static WiFiClient _wifi_client;
 static WebSocketClient _ws(_wifi_client, TRANSPORT_ADAPTER_HOST, TRANSPORT_ADAPTER_WS_PORT);
+static bool memory_first = true;
+static uint64_t memory_last = 0;
 
 CommandFrame g_last_frame;
 bool g_frame_ready = false;
 
 void ws_init() {
-    // nothing to init; client is constructed statically
+    memory_init();
 }
 
 bool ws_connect() {
@@ -33,6 +37,7 @@ void ws_force_reconnect() {
 }
 
 void ws_send_hello(bool post_ota) {
+    memory_first = true;
     static_assert(sizeof(HOUSEPANEL_HOSTNAME) <= 64, "Panel hostname must fit DHCP limits");
     static_assert(sizeof(HOUSEPANEL_PANEL_ID) <= 33, "Panel ID is too long");
     char buf[256];
@@ -41,6 +46,19 @@ void ws_send_hello(bool post_ota) {
              FIRMWARE_VERSION, post_ota ? "true" : "false", HOUSEPANEL_PANEL_ID, HOUSEPANEL_HOSTNAME);
     _ws.beginMessage(TYPE_TEXT);
     _ws.print(buf);
+    _ws.endMessage();
+}
+
+void ws_send_memory() {
+    uint64_t now = rtos::Kernel::get_ms_count();
+    if (!ws_connected() || !memory_due(now, memory_last, memory_first)) return;
+    memory_last = now;
+    memory_first = false;
+    static char buffer[768];
+    size_t length = memory_collect(buffer, sizeof(buffer));
+    if (length == 0) return;
+    _ws.beginMessage(TYPE_TEXT);
+    _ws.write((const uint8_t*)buffer, length);
     _ws.endMessage();
 }
 

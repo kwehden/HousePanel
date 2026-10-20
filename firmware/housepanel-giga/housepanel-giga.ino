@@ -77,6 +77,7 @@ void loop() {
         }
     }
     ws_loop();
+    ws_send_memory();
     if (g_frame_ready) {
         g_frame_ready = false;
         switch (g_last_frame.type) {

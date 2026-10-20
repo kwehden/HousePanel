@@ -1,9 +1,12 @@
 from __future__ import annotations
 import asyncio
 import json
+import time
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 from shared.logging import make_logger, log_event
+from pydantic import ValidationError
+from transport_adapter.memory_telemetry import MemorySample
 from transport_adapter import state
 from transport_adapter.ws_write_loop import ws_write_loop
 from transport_adapter.state_refresh import discard_stale_commands, handle_hello_frame, handle_post_ota_refresh
@@ -14,8 +17,11 @@ logger = make_logger("transport-adapter")
 async def _read_loop(websocket: WebSocket, normal_ready: asyncio.Event | None = None,
                      panel: state.Panel | None = None) -> None:
     panel = panel if panel is not None else state.primary
+    hello_received = False
     while True:
         raw = await websocket.receive_text()
+        if len(raw) > 1024:
+            continue
         try:
             frame = json.loads(raw)
         except json.JSONDecodeError:
@@ -28,6 +34,21 @@ async def _read_loop(websocket: WebSocket, normal_ready: asyncio.Event | None = 
             if isinstance(hostname, str) and len(hostname) <= 63:
                 panel.hostname = hostname
             await handle_hello_frame(frame, normal_ready=normal_ready, panel=panel)
+            hello_received = True
+        elif cmd == "MEMORY" and hello_received:
+            now = time.monotonic()
+            if panel.memory_received_monotonic is not None and now - panel.memory_received_monotonic < 5:
+                continue
+            try:
+                sample = MemorySample.model_validate(frame)
+            except ValidationError:
+                continue
+            previous = panel.memory
+            if previous is not None and sample.boot_id == previous.boot_id and sample.uptime_ms <= previous.uptime_ms:
+                continue
+            panel.memory = sample
+            panel.memory_received_at = time.time()
+            panel.memory_received_monotonic = now
         elif cmd == "OTA-START":
             panel.ota_paused = True
             log_event(logger, "ota_start_received")
@@ -61,6 +82,7 @@ async def giga_websocket_handler(websocket: WebSocket, panel_id: str = "primary"
         discard_stale_commands(panel)
         panel.overloaded.clear()
         panel.hostname = None
+        panel.clear_memory()
         panel.ota_paused = False
         panel.giga_connected = True
         panel.active_websocket = websocket
@@ -75,6 +97,7 @@ async def giga_websocket_handler(websocket: WebSocket, panel_id: str = "primary"
     finally:
         # A session cancelled before its first step cannot run its own finally.
         if panel.active_websocket_task is task:
+            panel.clear_memory()
             panel.ota_paused = False
             panel.giga_connected = False
             panel.active_websocket = None
@@ -109,6 +132,7 @@ async def _run_connection(websocket: WebSocket, panel: state.Panel) -> None:
     finally:
         # Cleanup must never clear a replacement's ownership.
         if panel.active_websocket is websocket:
+            panel.clear_memory()
             panel.ota_paused = False
             panel.giga_connected = False
             panel.active_websocket = None
