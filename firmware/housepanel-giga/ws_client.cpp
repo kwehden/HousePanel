@@ -33,10 +33,12 @@ void ws_force_reconnect() {
 }
 
 void ws_send_hello(bool post_ota) {
-    char buf[128];
+    static_assert(sizeof(HOUSEPANEL_HOSTNAME) <= 64, "Panel hostname must fit DHCP limits");
+    static_assert(sizeof(HOUSEPANEL_PANEL_ID) <= 33, "Panel ID is too long");
+    char buf[256];
     snprintf(buf, sizeof(buf),
-             "{\"cmd\":\"HELLO\",\"firmware_version\":\"%s\",\"post_ota\":%s}",
-             FIRMWARE_VERSION, post_ota ? "true" : "false");
+             "{\"cmd\":\"HELLO\",\"firmware_version\":\"%s\",\"post_ota\":%s,\"panel_id\":\"%s\",\"hostname\":\"%s\"}",
+             FIRMWARE_VERSION, post_ota ? "true" : "false", HOUSEPANEL_PANEL_ID, HOUSEPANEL_HOSTNAME);
     _ws.beginMessage(TYPE_TEXT);
     _ws.print(buf);
     _ws.endMessage();

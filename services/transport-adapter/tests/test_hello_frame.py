@@ -8,11 +8,11 @@ from transport_adapter.state_refresh import handle_hello_frame, request_poller_r
 
 
 def _reset_state():
-    state.interrupt_queue = asyncio.Queue(maxsize=50)
-    state.normal_queue = asyncio.Queue(maxsize=50)
-    state.giga_connected = False
-    state.ota_paused = False
-    state.active_websocket = None
+    state.primary.interrupt_queue = asyncio.Queue(maxsize=50)
+    state.primary.normal_queue = asyncio.Queue(maxsize=50)
+    state.primary.giga_connected = False
+    state.primary.ota_paused = False
+    state.primary.active_websocket = None
 
 
 @pytest.fixture(autouse=True)
@@ -68,8 +68,8 @@ async def test_hello_frame_enqueues_time_weather_calendar():
         await close_poller_refresh()
 
     queued = []
-    while not state.normal_queue.empty():
-        queued.append(state.normal_queue.get_nowait())
+    while not state.primary.normal_queue.empty():
+        queued.append(state.primary.normal_queue.get_nowait())
 
     cmds = [q["cmd"] for q in queued]
 
@@ -95,7 +95,7 @@ async def test_hello_frame_enqueues_time_weather_calendar():
 async def test_hello_frame_drains_stale_queue():
     """Stale messages in normal_queue are discarded before state refresh on HELLO."""
     for i in range(5):
-        state.normal_queue.put_nowait({"cmd": "SYSMON_TEMP", "t": 30.0, "h": ""})
+        state.primary.normal_queue.put_nowait({"cmd": "SYSMON_TEMP", "t": 30.0, "h": ""})
 
     mock_response = MagicMock()
     mock_response.json.return_value = _AGGREGATOR_STATE
@@ -114,8 +114,8 @@ async def test_hello_frame_drains_stale_queue():
         await close_poller_refresh()
 
     queued = []
-    while not state.normal_queue.empty():
-        queued.append(state.normal_queue.get_nowait())
+    while not state.primary.normal_queue.empty():
+        queued.append(state.primary.normal_queue.get_nowait())
 
     cmds = [q["cmd"] for q in queued]
     assert cmds[0] == "TIME", f"TIME must be first after drain; got {cmds}"

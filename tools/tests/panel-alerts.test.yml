@@ -1,0 +1,83 @@
+rule_files:
+  - ../../build/panel-alerts.rules.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'housepanel_panel_session_connected{panel_id="primary",instance="transport",job="transport"}'
+        values: '1+0x20'
+      - series: 'housepanel_panel_session_connected{panel_id="panel-2",instance="transport",job="transport"}'
+        values: '1+0x20'
+      - series: 'housepanel_panel_session_last_frame_timestamp_seconds{panel_id="primary",instance="transport",job="transport"}'
+        values: '0+60x20'
+      - series: 'housepanel_panel_session_last_frame_timestamp_seconds{panel_id="panel-2",instance="transport",job="transport"}'
+        values: '0+0x20'
+      - series: 'housepanel_panel_session_ota_paused{panel_id="panel-2",instance="transport",job="transport"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: HousePanelNamedPanelStale
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: HousePanelNamedPanelDisconnected
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'housepanel_panel_session_connected{panel_id="primary",instance="transport",job="transport"}'
+        values: '1+0x20'
+      - series: 'housepanel_panel_session_connected{panel_id="panel-2",instance="transport",job="transport"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: HousePanelNamedPanelDisconnected
+        exp_alerts:
+          - exp_labels:
+              panel_id: panel-2
+              instance: transport
+              job: transport
+              severity: warning
+            exp_annotations:
+              summary: Panel panel-2 is disconnected
+              description: This panel has been absent for 15 minutes. Another connected panel must not hide a local firmware or WiFi failure.
+  - interval: 1m
+    input_series:
+      - series: 'housepanel_panel_session_connected{panel_id="primary",instance="transport",job="transport"}'
+        values: '1+0x20'
+      - series: 'housepanel_panel_session_connected{panel_id="panel-2",instance="transport",job="transport"}'
+        values: '1+0x20'
+      - series: 'housepanel_panel_session_last_frame_timestamp_seconds{panel_id="primary",instance="transport",job="transport"}'
+        values: '0+60x20'
+      - series: 'housepanel_panel_session_last_frame_timestamp_seconds{panel_id="panel-2",instance="transport",job="transport"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: HousePanelNamedPanelStale
+        exp_alerts:
+          - exp_labels:
+              panel_id: panel-2
+              instance: transport
+              job: transport
+              severity: warning
+            exp_annotations:
+              summary: Panel panel-2 is not receiving frames
+              description: This panel remains connected but has received no frames for over five minutes, independently of delivery to the other panel.
+  - interval: 1m
+    input_series:
+      - series: 'housepanel_panel_session_connected{panel_id="primary",instance="transport",job="transport"}'
+        values: '1+0x10'
+      - series: 'housepanel_panel_session_connected{panel_id="panel-2",instance="transport",job="transport"}'
+        values: '1+0x10'
+      - series: 'housepanel_panel_session_last_frame_timestamp_seconds{panel_id="primary",instance="transport",job="transport"}'
+        values: '0+60x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HousePanelNamedPanelStale
+        exp_alerts:
+          - exp_labels:
+              panel_id: panel-2
+              instance: transport
+              job: transport
+              severity: warning
+            exp_annotations:
+              summary: Panel panel-2 is not receiving frames
+              description: This panel remains connected but has received no frames for over five minutes, independently of delivery to the other panel.

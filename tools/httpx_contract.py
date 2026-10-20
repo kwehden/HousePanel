@@ -92,14 +92,14 @@ async def audit(case, mode):
                     response.raise_for_status()
         elif case.startswith("transport_"):
             from transport_adapter import state_refresh, state
-            state.normal_queue = asyncio.Queue(maxsize=200)
+            state.primary.normal_queue = asyncio.Queue(maxsize=200)
             async def invoke():
                 if case == "transport_post":
                     await state_refresh._trigger_poller_refresh()
                 else:
                     await state_refresh._refresh_state("audit")
-                while not state.normal_queue.empty():
-                    state.normal_queue.get_nowait()
+                while not state.primary.normal_queue.empty():
+                    state.primary.normal_queue.get_nowait()
         elif case == "calendar_post":
             from calendar_poller.poller import push_calendar_update
             client = async_factory()
