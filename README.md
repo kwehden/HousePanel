@@ -68,11 +68,10 @@ spec/                    Architecture context, requirements, design docs
 2. Copy `firmware/housepanel-giga/secrets.h.example` → `firmware/housepanel-giga/secrets.h` and fill in:
    - WiFi SSID and password
    - IP/hostname of your k3s node running the transport-adapter NodePort
-3. Compile and upload:
-   ```sh
-   arduino-cli compile --fqbn arduino:mbed_giga:giga firmware/housepanel-giga/
-   arduino-cli upload --fqbn arduino:mbed_giga:giga --port <PORT> firmware/housepanel-giga/
-   ```
+3. Follow the [firmware OTA workflow](docs/firmware-ota.md) for the one-time
+   identity-checked bootstrap and subsequent encrypted Wi-Fi updates. Use its
+   build helper so both the sketch and libraries receive the required flags.
+   Backend CD does not flash firmware; leave firmware PRs open for review first.
 
 ### Backend services
 

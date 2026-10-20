@@ -12,7 +12,7 @@ def main():
         root = Path(directory)
         sketch = root / "housepanel-giga"
         shutil.copytree(ROOT / "firmware/housepanel-giga", sketch,
-                        ignore=shutil.ignore_patterns("secrets.h"))
+                        ignore=shutil.ignore_patterns("secrets.h", "ota_secrets.h"))
         shutil.copyfile(sketch / "secrets.h.example", sketch / "secrets.h")
         lv_config = f'-DLV_CONF_PATH="{sketch / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768'
         for panel, hostname in (("primary", "housepanel"), ("panel-2", "housepanel-2")):

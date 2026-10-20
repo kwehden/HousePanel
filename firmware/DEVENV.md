@@ -13,9 +13,10 @@
 - ArduinoJson — JSON parsing
 
 ## Commands
+- **Reviewed bootstrap and Wi-Fi OTA:** see [firmware updates](../docs/firmware-ota.md).
 - **Compile check, both identities, dummy credentials:** `python tools/ci_firmware.py`
 - **Local release compile:** set `LV_CONF_PATH` for both C and C++ as shown below.
-- **Upload:** `arduino-cli upload --fqbn arduino:mbed_giga:giga --port <PORT> firmware/housepanel-giga/`
+- **USB upload:** bootstrap/recovery only; use the hardware-serial guard in the OTA workflow.
 - **Monitor:** `arduino-cli monitor --port <PORT>`
 
 ## Notes

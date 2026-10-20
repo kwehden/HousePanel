@@ -3,6 +3,7 @@
 #include "wifi_manager.h"
 #include "ws_client.h"
 #include "command_parser.h"
+#include "ota_update.h"
 #include <mbed.h>
 #include <WiFi.h>
 
@@ -39,12 +40,14 @@ void setup() {
     // RTC is seeded by the first TIME command the server sends in response to HELLO.
     // 10s gives headroom above the 3s WS handshake timeout (see ws_init()) plus normal loop overhead.
     mbed::Watchdog::get_instance().start(10000);
+    ota_init();
 }
 
 static unsigned long _loop_count = 0;
 
 void loop() {
     mbed::Watchdog::get_instance().kick();
+    ota_loop();
     _loop_count++;
     if (_loop_count % 200 == 0) {
         Serial.print("loop #");

@@ -89,8 +89,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - run: |
-          pip install -e services/shared -e 'services/calendar-poller[dev]' ruff \
+          pip install -e services/shared -e 'services/calendar-poller[dev]' ruff cryptography \
             -e services/aggregator -e services/sysmon-poller -e services/weather-poller \
             -e services/transport-adapter -e services/webhook-receiver
       - run: ruff check --select E9,F63,F7,F82 services tools
@@ -116,7 +117,7 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install arduino:mbed_giga@4.5.0
           arduino-cli lib install 'lvgl@9.5.0' 'ArduinoHttpClient@0.6.1' \
-            'ArduinoJson@7.4.3' 'Arduino_GigaDisplayTouch@1.0.1'
+            'ArduinoJson@7.4.3' 'Arduino_GigaDisplayTouch@1.0.1' 'Arduino_Portenta_OTA@1.2.1'
       - run: python tools/ci_firmware.py
 
   image:

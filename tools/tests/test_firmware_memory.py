@@ -48,6 +48,7 @@ def test_ci_compiles_both_identities_with_only_dummy_credentials(tmp_path, monke
     sketch = tmp_path / "firmware/housepanel-giga"
     sketch.mkdir(parents=True)
     (sketch / "secrets.h").write_text("PRIVATE MUST NOT BE COPIED")
+    (sketch / "ota_secrets.h").write_text("PRIVATE OTA KEY MUST NOT BE COPIED")
     (sketch / "secrets.h.example").write_text("DUMMY CREDENTIALS")
     calls = []
 
@@ -55,6 +56,7 @@ def test_ci_compiles_both_identities_with_only_dummy_credentials(tmp_path, monke
         assert command[:2] == ["arduino-cli", "compile"] and check
         copied = Path(command[-1])
         assert (copied / "secrets.h").read_text() == "DUMMY CREDENTIALS"
+        assert not (copied / "ota_secrets.h").exists()
         assert f'-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}"' in command[5]
         assert "-DWS_TX_BUFFER_SIZE=768" in command[5]
         assert command[7] == f'compiler.c.extra_flags=-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768'
