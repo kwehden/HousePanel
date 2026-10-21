@@ -20,6 +20,8 @@ contracts, MINOR for compatible features, and PATCH for compatible fixes.
 Release tags are immutable. Never move an existing version to another commit.
 A correction or rollback gets a new version. Record configuration or firmware
 changes separately if they are not included in the service image bundle.
+GIGA firmware follows the separately reviewed [OTA workflow](firmware-ota.md).
+Backend deployment success does not mean either panel's firmware was updated.
 
 ## Ship and verify
 
