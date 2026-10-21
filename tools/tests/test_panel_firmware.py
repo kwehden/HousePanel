@@ -191,7 +191,8 @@ def test_bootstrap_refuses_other_hardware_and_uses_exact_verified_binary(tmp_pat
         assert not calls
 
 
-def test_host_upload_requires_authenticated_new_boot_and_revision(tmp_path, protocol, monkeypatch):
+@pytest.mark.parametrize("lost_final_ack", [False, True])
+def test_host_upload_requires_authenticated_new_boot_and_revision(tmp_path, protocol, monkeypatch, lost_final_ack):
     path = manifest(tmp_path)
     listener = socket.socket()
     listener.settimeout(5)
@@ -221,7 +222,8 @@ def test_host_upload_requires_authenticated_new_boot_and_revision(tmp_path, prot
                     wire = stream.read(len(IMAGE))
                     # Feed the real host upload through the actual C++ receiver.
                     assert invoke(protocol, tmp_path, header, wire).read_bytes() == IMAGE
-                    connection.sendall(b'{"ok":true}\n')
+                    if not lost_final_ack:
+                        connection.sendall(b'{"ok":true}\n')
                 with listener.accept()[0] as connection, connection.makefile("rb") as stream:
                     signed_status(connection, stream, "2", "a" * 40)
         except Exception as exc:
@@ -314,7 +316,8 @@ def runtime(tmp_path_factory, request):
     return binary, panel
 
 
-@pytest.mark.parametrize("mode", ["ok", "bad_auth", "expired", "timeout", "disconnect", "wifi_loss", "arm_failure", "bad_body", "status_soak"])
+@pytest.mark.parametrize("mode", ["ok", "bad_auth", "expired", "timeout", "disconnect", "wifi_loss", "arm_failure", "bad_body", "status_soak",
+                                 "status_partial", "accepted_partial", "final_partial"])
 def test_actual_firmware_socket_staging_and_bootloader_boundary(runtime, tmp_path, mode):
     runtime, panel = runtime
     # Runtime fixture emits 16 boot bytes first, then this per-request nonce.
@@ -333,8 +336,19 @@ def test_actual_firmware_socket_staging_and_bootloader_boundary(runtime, tmp_pat
     status = json.loads(body)
     ota.verify_identity(status, panel)
     assert status["challenge"] == challenge and status["ready"] is True
-    if mode == "ok":
+    if mode == "ok" or mode.endswith("_partial"):
         assert (tmp_path / "UPDATE.BIN").read_bytes() == image
+
+
+@pytest.mark.parametrize("phase", ["status", "accepted", "final"])
+@pytest.mark.parametrize("failure", ["stall", "zero", "error", "cut"])
+def test_reply_send_failure_never_arms_bootloader_or_leaks_socket(runtime, tmp_path, phase, failure):
+    runtime, panel = runtime
+    image = IMAGE.replace(ota.identity("primary"), ota.identity(panel))
+    header, wire = ota.envelope(panel, bytes(range(16, 48)).hex(), image, KEY)
+    payload = tmp_path / "envelope"
+    payload.write_bytes(header + wire)
+    subprocess.run([runtime, payload, tmp_path, f"{phase}_{failure}"], check=True, capture_output=True)
 
 
 @pytest.mark.parametrize("mode", ["init_layout", "init_bootloader", "init_storage", "init_entropy"])

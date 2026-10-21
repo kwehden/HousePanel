@@ -38,6 +38,11 @@ bool ready = false, listening = false, receiving = false, nonce_valid = false;
 bool querying = false;
 uint32_t connected_at = 0, progress_at = 0, challenge_at = 0;
 uint32_t listen_attempt_at = 0;
+enum class AfterReply { Close, Receive, Install };
+char reply_buffer[640];
+size_t reply_size = 0, reply_offset = 0;
+uint32_t reply_started = 0;
+AfterReply after_reply = AfterReply::Close;
 const char* reason = "not_initialized";
 
 bool random_bytes(uint8_t* out, size_t size) {
@@ -92,11 +97,33 @@ void close_peer() {
     peer.reset();
     receiving = querying = false;
     header_size = 0;
+    reply_size = reply_offset = 0;
 }
-void reply(const char* text) {
-    peer->set_timeout(1000);
-    peer->send(text, strlen(text));
-    peer->set_blocking(false);
+void reply(const char* text, AfterReply action = AfterReply::Close, const char* suffix = "") {
+    size_t first = strlen(text), second = strlen(suffix);
+    if (reply_size || first + second > sizeof(reply_buffer)) { close_peer(); return; }
+    memcpy(reply_buffer, text, first);
+    memcpy(reply_buffer + first, suffix, second);
+    reply_size = first + second;
+    reply_offset = 0;
+    reply_started = millis();
+    after_reply = action;
+}
+void flush_reply() {
+    if ((millis() - reply_started) >= 2000) { close_peer(); return; }
+    int sent = peer->send(reply_buffer + reply_offset, reply_size - reply_offset);
+    if (sent == NSAPI_ERROR_WOULD_BLOCK) return;
+    if (sent <= 0 || static_cast<size_t>(sent) > reply_size - reply_offset) { close_peer(); return; }
+    reply_offset += static_cast<size_t>(sent);
+    if (reply_offset != reply_size) return;
+    AfterReply action = after_reply;
+    reply_size = reply_offset = 0;
+    progress_at = millis();
+    if (action == AfterReply::Receive) return;
+    close_peer();
+    // No bootloader state is changed if the staged-image reply could not be
+    // transmitted. The host still requires a fresh authenticated new boot.
+    if (action == AfterReply::Install && updater.update() == Arduino_Portenta_OTA::Error::None) updater.reset();
 }
 void status() {
     nonce_valid = ready && random_bytes(nonce, sizeof(nonce));
@@ -119,10 +146,8 @@ void status() {
     if (receiver.sign(reinterpret_cast<const uint8_t*>(response), strlen(response), tag)) {
         to_hex(tag, sizeof(tag), tag_hex);
         strcat(tag_hex, "\n");
-        reply(response);
-        reply(tag_hex);
-    }
-    close_peer();
+        reply(response, AfterReply::Close, tag_hex);
+    } else close_peer();
 }
 }
 
@@ -177,6 +202,7 @@ void ota_loop() {
     }
     uint32_t now = millis();
     if ((now - connected_at) > 180000 || (now - progress_at) > 5000) { close_peer(); return; }
+    if (reply_size) { flush_reply(); return; }
     // One bounded chunk per UI loop. Idle/partial clients cannot stall the display.
     int actual = peer->recv(buffer, sizeof(buffer));
     if (actual == NSAPI_ERROR_WOULD_BLOCK) return;
@@ -192,23 +218,23 @@ void ota_loop() {
         if (querying && header_size == 40) { status(); return; }
         if (header_size == OTA_HEADER_SIZE) {
             if (!nonce_valid || (now - challenge_at) > 60000 || !receiver.begin(header, sink)) {
-                reply("{\"ok\":false}\n"); close_peer(); return;
+                reply("{\"ok\":false}\n"); return;
             }
             nonce_valid = false;
             receiving = true;
-            reply("{\"accepted\":true}\n");
+            // The client must await authorization before sending the body.
+            if (used != static_cast<size_t>(actual)) { close_peer(); return; }
+            reply("{\"accepted\":true}\n", AfterReply::Receive);
+            return;
         }
     }
     if (receiving && used < static_cast<size_t>(actual)) {
         if (!receiver.feed(buffer + used, static_cast<size_t>(actual) - used)) {
-            reply("{\"ok\":false}\n"); close_peer(); return;
+            reply("{\"ok\":false}\n"); return;
         }
         progress_at = now;
         if (receiver.complete()) {
-            bool armed = updater.update() == Arduino_Portenta_OTA::Error::None;
-            reply(armed ? "{\"ok\":true}\n" : "{\"ok\":false}\n");
-            close_peer();
-            if (armed) updater.reset();
+            reply("{\"ok\":true}\n", AfterReply::Install);
         }
     }
 }

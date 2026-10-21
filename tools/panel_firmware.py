@@ -132,7 +132,13 @@ def upload(host: str, panel: str, manifest_path: Path, secret: bytes, *, port: i
             if json.loads(read_line(stream, 128)).get("accepted") is not True:
                 raise ValueError("Panel rejected update authorization")
             connection.sendall(ciphertext)
-            if json.loads(read_line(stream, 128)).get("ok") is not True:
+            try:
+                acknowledgement = json.loads(read_line(stream, 128))
+            except (OSError, ValueError):
+                # A reboot can race delivery of the final reply. Never resend
+                # the image automatically; reconcile using signed boot/revision.
+                acknowledgement = None
+            if acknowledgement is not None and (not isinstance(acknowledgement, dict) or acknowledgement.get("ok") is not True):
                 raise ValueError("Panel rejected staged firmware")
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:

@@ -10,13 +10,20 @@ inline bool wifi_up = true;
 inline unsigned entropy_counter = 0;
 inline int mounts = 0, arms = 0, resets = 0, listens = 0;
 inline int sockets_live = 0;
+inline unsigned send_calls_total = 0;
 inline bool arm_failure = false;
 inline bool layout_ok = true, bootloader_capable = true, storage_ready = true, entropy_ok = true;
 inline uint32_t millis() { return fake_ms; }
 constexpr int WL_CONNECTED = 1;
 struct FakeWifi { int status() { return wifi_up ? WL_CONNECTED : 0; } void* getNetwork() { return nullptr; } };
 inline FakeWifi WiFi;
-struct Link { std::vector<uint8_t> in, out; size_t cursor = 0; bool connected = true; };
+struct Link {
+    std::vector<uint8_t> in, out;
+    size_t cursor = 0, max_send = 640;
+    std::deque<int> send_results;
+    bool connected = true, stall_send = false;
+    int send_calls = 0;
+};
 inline std::deque<std::shared_ptr<Link>> pending;
 using nsapi_error_t = int;
 constexpr int NSAPI_ERROR_OK = 0, NSAPI_ERROR_WOULD_BLOCK = -3001, NSAPI_SOCKET = 1, NSAPI_REUSEADDR = 2;
@@ -34,6 +41,15 @@ public:
         return count;
     }
     int send(const void* source, size_t count) {
+        ++send_calls_total;
+        ++link->send_calls;
+        if (link->stall_send) return NSAPI_ERROR_WOULD_BLOCK;
+        if (!link->send_results.empty()) {
+            int result = link->send_results.front(); link->send_results.pop_front();
+            if (result <= 0) return result;
+            count = std::min(count, static_cast<size_t>(result));
+        }
+        count = std::min(count, link->max_send);
         auto data = static_cast<const uint8_t*>(source);
         link->out.insert(link->out.end(), data, data + count); return count;
     }

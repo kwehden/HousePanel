@@ -100,6 +100,10 @@ reporting the expected revision and ready updater. A missing response is an
 uncertain result, not permission to flash again blindly. Inspect the board and
 Transport first. There is no automatic firmware rollback. Power loss during
 bootloader programming may require USB recovery; update only one panel at a time.
+The final `ok` reply acknowledges a verified staged image. Only after its complete
+transmission does firmware arm and reset the bootloader. If that reply is lost on
+the network, the host still attempts signed new-boot/revision verification without
+resending the image; an arming failure cannot be mistaken for confirmed success.
 
 ## Protocol and Resource Limits
 
@@ -126,7 +130,12 @@ arms the bootloader. A failed transfer closes and removes the partial file.
 
 Receive state and the 1 KiB transfer buffer are fixed-size. One connection is
 processed at a time, with a five-second inactivity limit and a 180-second total
-limit. Each display loop processes at most one body chunk. Storage mounts once
+limit. Each display loop processes at most one body chunk. Replies use a fixed
+640-byte buffer, one nonblocking send per UI tick
+and a two-second deadline. Partial writes resume from the exact offset;
+`WOULD_BLOCK` yields to the UI. A failed authorization reply cancels staging,
+and a failed final reply cannot arm or reset the bootloader. Clients must wait
+for the authorization reply before sending the encrypted body. Storage mounts once
 per boot; failed initialization is not retried in a loop. This avoids repeated
 allocations in the upstream library's `begin()` path. Socket and filesystem
 libraries still own internal allocations; host tests do not establish a hardware
