@@ -51,7 +51,8 @@ def main():
                   f"static const SmoothFont {name} = {{{name}Glyphs, {name}Pixels, {len(glyphs)}, {font.getmetrics()[0]}}};"]
         previews[name] = (images, font.getmetrics()[0])
     (DEST / "smooth_font.h").write_text("\n".join(lines) + "\n")
-    (DEST / "FONT-LICENSE.txt").write_bytes(Path("/usr/share/doc/fonts-lato/copyright").read_bytes())
+    license_text = Path("/usr/share/doc/fonts-lato/copyright").read_text()
+    (DEST / "FONT-LICENSE.txt").write_text("\n".join(line.rstrip() for line in license_text.splitlines()) + "\n")
     preview = Image.new("RGB", (800, 480))
 
     def text(value, name, center, y, color):
