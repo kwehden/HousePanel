@@ -49,6 +49,29 @@ _AGGREGATOR_STATE = {
 
 
 @pytest.mark.asyncio
+async def test_hello_replay_preserves_cached_measurement_time():
+    response = MagicMock()
+    response.content = json.dumps({"sysmon": {
+        "temp_c": 24.4, "humidity_pct": 34.8, "label": "Filament Box",
+        "timestamp": "2026-10-23T05:00:00Z",
+    }}).encode()
+    response.aclose = AsyncMock()
+    client = AsyncMock()
+    client.get.return_value = response
+    client.__aenter__.return_value = client
+    client.__aexit__.return_value = False
+    with patch("transport_adapter.state_refresh.httpx.AsyncClient", return_value=client), \
+            patch("transport_adapter.state_refresh.request_poller_refresh"):
+        for elapsed in (0, 90, 180, 270, 360, 600):
+            with patch("transport_adapter.state_refresh._time.time", return_value=1792731600 + elapsed):
+                await handle_hello_frame({"cmd": "HELLO"})
+            clock = state.primary.normal_queue.get_nowait()
+            reading = state.primary.normal_queue.get_nowait()
+            assert clock["epoch"] == 1792731600 + elapsed
+            assert reading["measured_at"] == 1792731600
+
+
+@pytest.mark.asyncio
 async def test_hello_frame_enqueues_time_weather_calendar():
     """On HELLO, state_refresh puts TIME, decomposed WEATHER, and CAL_EVENT in normal_queue."""
     mock_response = MagicMock()

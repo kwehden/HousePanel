@@ -8,7 +8,12 @@ and relative humidity. Labels and values use antialiased Lato glyphs.
 The sketch connects to the existing transport adapter as `primary` at
 `/ws/panels/primary`. It accepts `TIME` and `SYSMON_TEMP` messages and ignores
 the other panel commands. The server supplies the Pacific UTC offset.
-Sensor values become placeholders after five minutes without an update.
+`SYSMON_TEMP.measured_at` carries the source measurement's Unix timestamp.
+Sensor values become placeholders once that measurement is five minutes old,
+even if reconnects replay it. A synchronized clock and a valid source timestamp
+are required to mark a reading live; missing or future timestamps show placeholders.
+Deploy the transport adapter change before flashing this firmware. Older full-panel
+firmware ignores the additional timestamp field.
 Wi-Fi and WebSocket connections retry automatically, including after a failed
 handshake. USB diagnostics use nonblocking writes; direct power works without
 a serial reader.

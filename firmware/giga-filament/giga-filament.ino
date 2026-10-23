@@ -11,6 +11,7 @@
 #include <time.h>
 #include "secrets.h"
 #include "smooth_font.h"
+#include "sensor_freshness.h"
 
 Arduino_H7_Video display(800, 480, GigaDisplayShield);
 WiFiClient network;
@@ -18,7 +19,7 @@ WebSocketClient socket(network, TRANSPORT_ADAPTER_HOST, TRANSPORT_ADAPTER_WS_POR
 bool clockReady = false, sensorReady = false;
 int offsetMinutes = 0;
 float temperature = 0, humidity = 0;
-uint32_t sensorAt = 0, lastFrame = 0, lastDraw = 0, lastReport = 0;
+uint32_t sensorMeasuredAt = 0, lastFrame = 0, lastDraw = 0, lastReport = 0;
 uint32_t lastWifiTry = 0, lastSocketTry = 0;
 bool wifiTried = false, socketTried = false;
 
@@ -71,7 +72,7 @@ void drawScreen() {
     strftime(clock, sizeof(clock), "%H:%M:%S", &fields);
     strftime(date, sizeof(date), "%Y-%m-%d", &fields);
   }
-  bool fresh = sensorReady && millis() - sensorAt < 300000UL;
+  bool fresh = sensorReady && sensor_is_fresh(clockReady, time(nullptr), sensorMeasuredAt);
   if (fresh) {
     snprintf(temp, sizeof(temp), "%.1f \xB0" "C", temperature);
     snprintf(rh, sizeof(rh), "%.1f %%", humidity);
@@ -142,7 +143,8 @@ void receiveFrame() {
     float t = data["t"], h = data["h"];
     if (isfinite(t) && isfinite(h) && h >= 0 && h <= 100) {
       temperature = t; humidity = h;
-      sensorAt = millis(); sensorReady = true;
+      sensorMeasuredAt = data["measured_at"].is<unsigned long>() ? data["measured_at"].as<unsigned long>() : 0;
+      sensorReady = true;
     }
   }
 }
@@ -177,7 +179,7 @@ void loop() {
   if (now - lastReport >= 5000UL) {
     lastReport = now;
     char line[180];
-    snprintf(line, sizeof(line), "FILAMENT: uptime=%lu wifi=%d ws=%d clock=%d t=%.1f h=%.1f sensor_age=%lu\n", (unsigned long)now, WiFi.status(), socket.connected(), clockReady, temperature, humidity, sensorReady ? (unsigned long)(now-sensorAt) : 0UL);
+    snprintf(line, sizeof(line), "FILAMENT: uptime=%lu wifi=%d ws=%d clock=%d t=%.1f h=%.1f measured_at=%lu\n", (unsigned long)now, WiFi.status(), socket.connected(), clockReady, temperature, humidity, (unsigned long)sensorMeasuredAt);
     logLine(line);
   }
   delay(5);
