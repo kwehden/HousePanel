@@ -27,6 +27,7 @@ node_modules/
 # Firmware secrets (WiFi creds, local network config)
 firmware/housepanel-giga/secrets.h
 firmware/housepanel-giga/ota_secrets.h
+firmware/giga-filament/secrets.h
 
 # System2 / CI artefacts
 .task-lease.regex

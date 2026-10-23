@@ -12,6 +12,25 @@ from transport_adapter.stream_decompose import decompose_command
 from transport_adapter.stream_decompose import encode_frame
 
 
+@pytest.mark.parametrize("timestamp", [
+    "2026-10-23T05:00:00Z", "2026-10-22T22:00:00-07:00",
+    "2026-10-23T05:00:00.900000+00:00",
+])
+def test_sysmon_preserves_source_epoch_across_replays(timestamp):
+    payload = {"temp_c": 24.4, "humidity_pct": 34.8, "timestamp": timestamp}
+    for _ in range(8):
+        (frame,) = decompose_command("SYSMON-UPDATE", payload)
+        assert frame == {"cmd": "SYSMON_TEMP", "t": 24.4, "h": 34.8, "measured_at": 1792731600}
+        assert len(encode_frame(frame).encode()) < 200
+
+
+@pytest.mark.parametrize("timestamp", [None, "", "bad", "2026-10-23T05:00:00", 123,
+                                       "9999-12-31T23:59:59Z", "1960-01-01T00:00:00Z"])
+def test_sysmon_unknown_source_age_is_not_fabricated(timestamp):
+    (frame,) = decompose_command("SYSMON-UPDATE", {"timestamp": timestamp})
+    assert frame["measured_at"] == 0
+
+
 def _weather(**over) -> dict:
     base = {
         "temperature_c": 21.5,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from datetime import datetime
 from typing import Any
 
 JsonObject = dict[str, Any]
@@ -79,7 +80,21 @@ def _weather_stream(p: JsonObject) -> list[JsonObject]:
 def _sysmon_stream(p: JsonObject) -> list[JsonObject]:
     temp_c = float(p.get("temp_c") or 0.0)
     humidity_pct = float(p.get("humidity_pct") or 0.0)
-    return [{"cmd": "SYSMON_TEMP", "t": round(temp_c, 1), "h": round(humidity_pct, 1)}]
+    # Preserve measurement age on HELLO snapshot replays. Never replace an
+    # unknown source time with the time this frame happens to be delivered.
+    measured_at = 0
+    timestamp = p.get("timestamp")
+    if isinstance(timestamp, str):
+        try:
+            source = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if source.utcoffset() is not None:
+                epoch = int(source.timestamp())
+                if 0 < epoch <= 0xFFFFFFFF:
+                    measured_at = epoch
+        except (ValueError, OverflowError, OSError):
+            pass
+    return [{"cmd": "SYSMON_TEMP", "t": round(temp_c, 1), "h": round(humidity_pct, 1),
+             "measured_at": measured_at}]
 
 
 def _calendar_stream(p: JsonObject) -> list[JsonObject]:
