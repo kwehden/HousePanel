@@ -44,12 +44,16 @@ def test_native_collector_wire_contract_cadence_and_bounds(tmp_path):
     assert maximal["heap_current"] == 2**32 - 1
 
 
-def test_ci_compiles_both_identities_with_only_dummy_credentials(tmp_path, monkeypatch):
+def test_ci_compiles_all_sketches_with_only_dummy_credentials(tmp_path, monkeypatch):
     sketch = tmp_path / "firmware/housepanel-giga"
     sketch.mkdir(parents=True)
     (sketch / "secrets.h").write_text("PRIVATE MUST NOT BE COPIED")
     (sketch / "ota_secrets.h").write_text("PRIVATE OTA KEY MUST NOT BE COPIED")
     (sketch / "secrets.h.example").write_text("DUMMY CREDENTIALS")
+    simplified = tmp_path / "firmware/giga-filament"
+    simplified.mkdir()
+    (simplified / "secrets.h").write_text("PRIVATE PRIMARY MUST NOT BE COPIED")
+    (simplified / "secrets.h.example").write_text("DUMMY CREDENTIALS")
     calls = []
 
     def compile_only(command, *, check):
@@ -57,18 +61,23 @@ def test_ci_compiles_both_identities_with_only_dummy_credentials(tmp_path, monke
         copied = Path(command[-1])
         assert (copied / "secrets.h").read_text() == "DUMMY CREDENTIALS"
         assert not (copied / "ota_secrets.h").exists()
-        assert f'-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}"' in command[5]
-        assert "-DWS_TX_BUFFER_SIZE=768" in command[5]
-        assert command[7] == f'compiler.c.extra_flags=-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768'
+        if copied.name == "housepanel-giga":
+            assert f'-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}"' in command[5]
+            assert "-DWS_TX_BUFFER_SIZE=768" in command[5]
+            assert command[7] == f'compiler.c.extra_flags=-DLV_CONF_PATH="{copied / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768'
+        else:
+            assert copied.name == "giga-filament"
+            assert "--build-property" not in command
         calls.append(command)
 
     monkeypatch.setattr(ci_firmware, "ROOT", tmp_path)
     monkeypatch.setattr(ci_firmware.subprocess, "run", compile_only)
     ci_firmware.main()
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert '-DHOUSEPANEL_PANEL_ID="primary" -DHOUSEPANEL_HOSTNAME="housepanel"' in calls[0][5]
     assert '-DHOUSEPANEL_PANEL_ID="panel-2" -DHOUSEPANEL_HOSTNAME="housepanel-2"' in calls[1][5]
     assert (sketch / "secrets.h").read_text() == "PRIVATE MUST NOT BE COPIED"
+    assert (simplified / "secrets.h").read_text() == "PRIVATE PRIMARY MUST NOT BE COPIED"
 
 
 def test_project_pool_capacity_does_not_depend_on_local_core_edits(tmp_path):

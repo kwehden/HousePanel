@@ -105,7 +105,7 @@ jobs:
             test rules tools/tests/panel-alerts.test.yml
 
   firmware:
-    name: GIGA firmware / both identities
+    name: GIGA firmware / full panels and simplified primary
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -117,7 +117,8 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install arduino:mbed_giga@4.5.0
           arduino-cli lib install 'lvgl@9.5.0' 'ArduinoHttpClient@0.6.1' \
-            'ArduinoJson@7.4.3' 'Arduino_GigaDisplayTouch@1.0.1' 'Arduino_Portenta_OTA@1.2.1'
+            'ArduinoJson@7.4.3' 'Arduino_GigaDisplayTouch@1.0.1' 'Arduino_Portenta_OTA@1.2.1' \
+            'ArduinoGraphics@1.1.5'
       - run: python tools/ci_firmware.py
 
   image:

@@ -1,4 +1,4 @@
-"""Compile both reviewed panel identities with dummy credentials; never flash."""
+"""Compile full-panel identities and the simplified primary; never flash."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,6 +23,15 @@ def main():
                 "--build-property", f"compiler.c.extra_flags={lv_config}",
                 "--build-path", str(root / (panel + "-build")), str(sketch),
             ], check=True)
+
+        simplified = root / "giga-filament"
+        shutil.copytree(ROOT / "firmware/giga-filament", simplified,
+                        ignore=shutil.ignore_patterns("secrets.h"))
+        shutil.copyfile(simplified / "secrets.h.example", simplified / "secrets.h")
+        subprocess.run([
+            "arduino-cli", "compile", "--fqbn", "arduino:mbed_giga:giga",
+            "--build-path", str(root / "simplified-primary-build"), str(simplified),
+        ], check=True)
 
 
 if __name__ == "__main__":
