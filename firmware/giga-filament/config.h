@@ -8,4 +8,4 @@
 #define HOUSEPANEL_HOSTNAME "housepanel"
 #endif
 #define HOUSEPANEL_INTERFACE "simplified"
-#define FIRMWARE_VERSION "filament-0.2"
+#define FIRMWARE_VERSION "dual-sensor-0.4"
