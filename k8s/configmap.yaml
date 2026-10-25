@@ -6,6 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: housepanel
 data:
+  # Shared calendar feed: Henrik's calendar is displayed by panel-2.
+  # The minimal primary firmware does not display calendar events.
   # Comma-separated Google Calendar IDs. Primary calendar is usually your Gmail address.
   # Additional IDs found in Google Calendar → Settings → [calendar] → Calendar ID.
-  GOOGLE_CALENDAR_ID: "karl@wehden.com,c_1175c5ad70113a9b9cd8687fb64aaea96e1e8b1245bf28159055f29cd1312c89@group.calendar.google.com"
+  GOOGLE_CALENDAR_ID: "henrik.wehden@gmail.com"
