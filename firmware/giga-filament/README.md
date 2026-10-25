@@ -10,6 +10,14 @@ sensor area to switch both temperatures between Celsius and Fahrenheit. Humidity
 stays in percent. A press toggles once; release before tapping again. Units start
 in Celsius after a reboot. Touches on the clock/date or footer do not toggle.
 
+The primary shield's touch controller reports portrait coordinates (480x800).
+The landscape mapping is `x = raw_y`, `y = 479 - raw_x`, matching the video
+driver's rotated framebuffer. On primary serial `004A002A3533510139363331`,
+corner taps on 2026-10-24 recorded raw `(455,95)` as top-left `(95,24)` and raw
+`(24,733)` as bottom-right `(733,455)`. Both corner taps left Celsius selected;
+subsequent sensor-area taps switched C/F successfully. Read the controller's
+configured dimensions before reusing this mapping on another shield.
+
 The sketch connects to the existing transport adapter as `primary` at
 `/ws/panels/primary`. It accepts `TIME`, `SYSMON_TEMP`, and `OUTDOOR_TEMP` messages and ignores
 the other panel commands. The server supplies the Pacific UTC offset.
