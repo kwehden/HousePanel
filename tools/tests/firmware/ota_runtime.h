@@ -55,7 +55,15 @@ public:
     }
     void set_timeout(unsigned) {}
     void set_blocking(bool) {}
-    int close() { if (link) link->connected = false; return 0; }
+    int close() {
+        // Mbed accept() sockets destroy themselves on close(); a second delete
+        // is a use-after-free. Listening sockets are not factory allocated.
+        if (link) {
+            link->connected = false;
+            delete this;
+        }
+        return 0;
+    }
     int open(void*) { return 0; }
     void setsockopt(int, int, void*, size_t) {}
     int bind(uint16_t) { return 0; }

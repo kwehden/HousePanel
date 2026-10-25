@@ -29,9 +29,13 @@ namespace {
 // repeat it per request or on failure; never format storage from a running panel.
 Arduino_Portenta_OTA_QSPI updater(QSPI_FLASH_FATFS_MBR, 2);
 TCPSocket server;
-// Core 4.5.0's WiFiClient closes but does not delete accepted sockets. Own the
-// raw accepted Mbed socket explicitly; also avoid its per-connection reader task.
-std::unique_ptr<TCPSocket> peer;
+// Mbed accept() sockets delete themselves in close(). Use close as the deleter
+// rather than deleting the dangling pointer again after closing the connection.
+// Raw Mbed sockets also avoid WiFiClient's per-connection reader task.
+struct AcceptedSocketCloser {
+    void operator()(TCPSocket* socket) const { socket->close(); }
+};
+std::unique_ptr<TCPSocket, AcceptedSocketCloser> peer;
 OtaReceiver receiver;
 constexpr char identity[] = "HousePanel identity:" HOUSEPANEL_PANEL_ID ":" HOUSEPANEL_HOSTNAME ":end";
 uint8_t header[OTA_HEADER_SIZE], buffer[1024], nonce[32];
@@ -96,7 +100,6 @@ public:
 } sink;
 void close_peer() {
     receiver.abort();
-    if (peer) peer->close();
     peer.reset();
     receiving = querying = false;
     header_size = 0;
