@@ -1,5 +1,12 @@
 # GIGA Firmware Updates
 
+The simplified primary interface also uses this receiver. Build it explicitly
+with `tools/panel_firmware.py build --panel primary --interface simplified`.
+The default `full` build remains unchanged for existing callers. Both the build
+manifest and authenticated status identify the interface; routine uploads refuse
+to switch interfaces. See the [simplified primary guide](../firmware/giga-filament/README.md)
+for its one-time USB installation and subsequent Wi-Fi update commands.
+
 Firmware 0.5.3 adds an authenticated, encrypted LAN updater for `primary`
 (`housepanel`) and `panel-2` (`housepanel-2`). Routine firmware updates use Wi-Fi.
 The current 0.5.1/0.5.2 sketches have no firmware receiver, so each board needs a
@@ -140,9 +147,59 @@ per boot; failed initialization is not retried in a loop. This avoids repeated
 allocations in the upstream library's `begin()` path. Socket and filesystem
 libraries still own internal allocations; host tests do not establish a hardware
 memory plateau or bound physical flash latency.
-Accepted Mbed sockets are explicitly owned and deleted after close. This bypasses
-core 4.5.0's WiFiClient accepted-socket path, which closes its non-owned socket
-without deleting it, and avoids that wrapper's per-connection reader task.
+Accepted Mbed sockets destroy themselves when `close()` runs. Never delete or
+access the pointer afterward. The receiver uses a `unique_ptr` with a custom
+deleter that calls only `close()`. Arduino core 4.5.0's `MbedClient::stop()` also
+uses close alone for accepted sockets. The raw Mbed path avoids the wrapper's
+per-connection reader task; it does not fix an accepted-socket leak.
+
+Check the installed core's `netsocket/TCPSocket.h` documentation for `accept()`
+before changing socket ownership. The [Mbed implementation](https://github.com/ARMmbed/mbed-os/blob/mbed-os-6.17.0/connectivity/netsocket/source/InternetSocket.cpp)
+shows `delete this` in `InternetSocket::close()`. Native socket doubles must model
+that behavior. Otherwise a test can pass while firmware double-deletes a socket.
+
+## Primary recovery and OTA verification, 2026-10-24
+
+The initial simplified OTA build, `b432d9d`, answered authenticated status and
+then became unreachable. The user observed four long and four short red flashes,
+which [Arduino identifies as an Mbed OS crash](https://support.arduino.cc/hc/en-us/articles/7991505987612-If-an-LED-on-GIGA-R1-WiFi-is-flashing-red).
+The receiver called `peer->close()` followed by default `unique_ptr::reset()`.
+The socket had already deleted itself. The old native socket double did not
+model self-deletion and missed this error.
+
+Fix `1a9c3da` closes each accepted socket exactly once. Updating the test double
+first reproduced a native memory error in the old code. The fixed tools suite
+passed 184 tests, with two skipped. The private simplified build passed too.
+
+Read the pinned [Arduino OTA example](https://github.com/arduino-libraries/Arduino_Portenta_OTA/blob/1.2.1/examples/OTA_Qspi_Flash/OTA_Qspi_Flash.ino)
+and its library implementation before another hardware change. It uses QSPI FAT
+partition 2 and calls `update()` before `reset()`. Its decompression step produces
+`/fs/UPDATE.BIN`; our receiver stages the authenticated raw application there.
+Preserve the board's existing partition layout and bootloader.
+
+For USB recovery and acceptance:
+
+1. Ask the user to double-tap RESET and wait for their reply. Use actual command
+   timestamps, not assumptions about how much time has elapsed.
+2. Check both `dfu-util -l` and `arduino-cli board list --json`. This primary
+   exposed both DFU `2341:0366` and a serial port in bootloader mode. Its serial
+   was `004A002A3533510139363331`, with bootloader v25. `/dev/ttyACM0` was an UNO
+   R4, not the GIGA. USB by-id names changed between bootloader and application.
+3. Install the exact manifest-checked image with the primary's existing OTA key.
+4. Require repeated authenticated status checks with an unchanged boot ID before
+   attempting OTA. One successful response did not establish that the old image
+   was healthy. The corrected image passed 12 consecutive checks.
+5. Upload over Wi-Fi and require the expected revision with a new authenticated
+   boot ID and `ready: true`. The corrected primary completed this at
+   `192.168.1.242`, changing boot ID from `897570bc0724e5ac308fda9e5796e703` to
+   `7c3e1df7eacc34224e529e1fc0f02c6c`. The backend recorded its primary WebSocket
+   reconnect and HELLO refresh after the update. Twenty further authenticated
+   status checks passed over about one minute with the new boot ID unchanged.
+
+Keep private build manifests and acceptance receipts in the ignored build
+directory. This run used `build/simplified-primary-ota-1a9c3da/`. The simplified
+interface has no `MEMORY` telemetry. Verify its authenticated OTA status and
+backend reconnect separately from the full-interface memory procedure below.
 
 ## Acceptance and Memory Baselines
 

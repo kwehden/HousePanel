@@ -28,6 +28,7 @@ node_modules/
 firmware/housepanel-giga/secrets.h
 firmware/housepanel-giga/ota_secrets.h
 firmware/giga-filament/secrets.h
+firmware/giga-filament/ota_secrets.h
 
 # System2 / CI artefacts
 .task-lease.regex

@@ -50,10 +50,13 @@ def test_ci_compiles_all_sketches_with_only_dummy_credentials(tmp_path, monkeypa
     (sketch / "secrets.h").write_text("PRIVATE MUST NOT BE COPIED")
     (sketch / "ota_secrets.h").write_text("PRIVATE OTA KEY MUST NOT BE COPIED")
     (sketch / "secrets.h.example").write_text("DUMMY CREDENTIALS")
+    for name in ("ota_update.cpp", "ota_update.h", "ota_protocol.cpp", "ota_protocol.h"):
+        (sketch / name).write_text("CANONICAL OTA SOURCE " + name)
     simplified = tmp_path / "firmware/giga-filament"
     simplified.mkdir()
     (simplified / "secrets.h").write_text("PRIVATE PRIMARY MUST NOT BE COPIED")
     (simplified / "secrets.h.example").write_text("DUMMY CREDENTIALS")
+    (simplified / "ota_secrets.h").write_text("PRIVATE PRIMARY OTA KEY MUST NOT BE COPIED")
     calls = []
 
     def compile_only(command, *, check):
@@ -68,6 +71,8 @@ def test_ci_compiles_all_sketches_with_only_dummy_credentials(tmp_path, monkeypa
         else:
             assert copied.name == "giga-filament"
             assert "--build-property" not in command
+            for name in ("ota_update.cpp", "ota_update.h", "ota_protocol.cpp", "ota_protocol.h"):
+                assert (copied / name).read_text() == "CANONICAL OTA SOURCE " + name
         calls.append(command)
 
     monkeypatch.setattr(ci_firmware, "ROOT", tmp_path)

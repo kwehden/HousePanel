@@ -22,6 +22,7 @@ import tempfile
 import time
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from firmware_sources import stage_ota
 
 ROOT = Path(__file__).resolve().parents[1]
 PANELS = {"primary": (1, "housepanel"), "panel-2": (2, "housepanel-2")}
@@ -103,6 +104,8 @@ def load_image(panel: str, manifest_path: Path) -> tuple[dict, Path, bytes]:
     if (manifest.get("panel_id") != panel or manifest.get("hostname") != PANELS[panel][1] or
             not re.fullmatch(r"[0-9a-f]{40}", manifest.get("revision", ""))):
         raise ValueError("Manifest identity or Git revision mismatch")
+    if manifest.get("interface", "full") not in ("full", "simplified"):
+        raise ValueError("Unknown firmware interface")
     name = manifest.get("image", "")
     if not isinstance(name, str) or Path(name).name != name or not name.endswith(".bin"):
         raise ValueError("Manifest image must be a sibling .bin file")
@@ -123,6 +126,8 @@ def upload(host: str, panel: str, manifest_path: Path, secret: bytes, *, port: i
         raise ValueError("Firmware was built with a different OTA key; routine upload cannot rotate keys")
     before = status(host, secret, port=port)
     verify_identity(before, panel)
+    if before.get("interface", "full") != manifest.get("interface", "full"):
+        raise ValueError("Firmware interface mismatch; use USB bootstrap for an intentional interface change")
     if before.get("ready") is not True or not re.fullmatch(r"[0-9a-f]{32}", before.get("boot_id", "")):
         raise ValueError("Updater is not ready")
     header, ciphertext = envelope(panel, before["challenge"], image, secret)
@@ -150,6 +155,8 @@ def upload(host: str, panel: str, manifest_path: Path, secret: bytes, *, port: i
         verify_identity(after, panel)
         if (after.get("revision") == manifest["revision"] and after.get("boot_id") != before["boot_id"] and
                 after.get("ready") is True):
+            if after.get("interface", "full") != manifest.get("interface", "full"):
+                raise ValueError("New boot has an unexpected firmware interface")
             return after
     raise TimeoutError("Update result uncertain: no authenticated new-boot/revision confirmation; inspect before retrying")
 
@@ -170,7 +177,9 @@ def bootstrap(panel: str, manifest_path: Path, serial: str) -> None:
                     "--input-file", str(binary.resolve()), "--verify"], check=True)
 
 
-def build(panel: str, revision: str, key_file: Path, output: Path) -> Path:
+def build(panel: str, revision: str, key_file: Path, output: Path, *, interface: str = "full") -> Path:
+    if interface not in ("full", "simplified") or (interface == "simplified" and panel != "primary"):
+        raise ValueError("The simplified interface is supported only on primary")
     resolved = subprocess.check_output(["git", "rev-parse", f"{revision}^{{commit}}"], cwd=ROOT, text=True).strip()
     if not re.fullmatch(r"[0-9a-f]{40}", resolved):
         raise ValueError("Invalid Git revision")
@@ -181,14 +190,20 @@ def build(panel: str, revision: str, key_file: Path, output: Path) -> Path:
     os.chmod(output, 0o700)
     with tempfile.TemporaryDirectory(prefix="housepanel-private-firmware-") as directory:
         temporary = Path(directory)
-        archive = subprocess.check_output(["git", "archive", resolved, "firmware/housepanel-giga"], cwd=ROOT)
+        paths = ["firmware/housepanel-giga"]
+        if interface == "simplified":
+            paths.append("firmware/giga-filament")
+        archive = subprocess.check_output(["git", "archive", resolved, *paths], cwd=ROOT)
         with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
             bundle.extractall(temporary, filter="data")
-        sketch = temporary / "firmware/housepanel-giga"
+        sketch_name = "giga-filament" if interface == "simplified" else "housepanel-giga"
+        sketch = temporary / "firmware" / sketch_name
+        if interface == "simplified":
+            stage_ota(temporary, sketch)
         # Credentials never enter Git, argv, CI artifacts, or a public update server.
         (sketch / "secrets.h").write_bytes((ROOT / "firmware/housepanel-giga/secrets.h").read_bytes())
         (sketch / "ota_secrets.h").write_text(f'#pragma once\n#define HOUSEPANEL_OTA_KEY_HEX "{secret.hex()}"\n')
-        common = f'-DLV_CONF_PATH="{sketch / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768'
+        common = f'-DLV_CONF_PATH="{sketch / "housepanel_lv_conf.h"}" -DWS_TX_BUFFER_SIZE=768' if interface == "full" else ""
         subprocess.run([
             "arduino-cli", "compile", "--fqbn", "arduino:mbed_giga:giga",
             "--build-property", f'compiler.cpp.extra_flags=-DHOUSEPANEL_PANEL_ID="{panel}" '
@@ -196,12 +211,12 @@ def build(panel: str, revision: str, key_file: Path, output: Path) -> Path:
             "--build-property", f"compiler.c.extra_flags={common}",
             "--build-path", str(temporary / "objects"), "--output-dir", str(output.resolve()), str(sketch),
         ], check=True)
-    binary = output / "housepanel-giga.ino.bin"
+    binary = output / f"{sketch_name}.ino.bin"
     data = binary.read_bytes()
     if identity(panel) not in data:
         raise ValueError("Compiled firmware has no matching OTA identity")
     manifest = output / "manifest.json"
-    manifest.write_text(json.dumps({"panel_id": panel, "hostname": PANELS[panel][1], "revision": resolved,
+    manifest.write_text(json.dumps({"panel_id": panel, "hostname": PANELS[panel][1], "revision": resolved, "interface": interface,
                                     "ota_key_sha256": hashlib.sha256(secret).hexdigest(),
                                     "image": binary.name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}, indent=2) + "\n")
     return manifest
@@ -215,6 +230,7 @@ def main() -> None:
     compile_command = sub.add_parser("build", help="Compile an exact committed revision with private credentials")
     compile_command.add_argument("--revision", required=True)
     compile_command.add_argument("--output", type=Path, required=True)
+    compile_command.add_argument("--interface", choices=("full", "simplified"), default="full")
     bootstrap_command = sub.add_parser("bootstrap", help="One-time USB install, guarded by GIGA hardware serial")
     bootstrap_command.add_argument("--panel", choices=PANELS, required=True)
     bootstrap_command.add_argument("--manifest", type=Path, required=True)
@@ -233,7 +249,7 @@ def main() -> None:
         with os.fdopen(os.open(args.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as stream:
             stream.write(os.urandom(32))
     elif args.command == "build":
-        print(build(args.panel, args.revision, args.key_file, args.output))
+        print(build(args.panel, args.revision, args.key_file, args.output, interface=args.interface))
     elif args.command == "bootstrap":
         bootstrap(args.panel, args.manifest, args.serial)
     elif args.command == "status":
