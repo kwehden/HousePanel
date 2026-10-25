@@ -18,8 +18,11 @@ Arduino_H7_Video display(800, 480, GigaDisplayShield);
 WiFiClient network;
 WebSocketClient socket(network, TRANSPORT_ADAPTER_HOST, TRANSPORT_ADAPTER_WS_PORT);
 bool clockReady = false, sensorReady = false;
+bool outdoorReady = false;
 int offsetMinutes = 0;
 float temperature = 0, humidity = 0;
+float outdoorTemperature = 0, outdoorHumidity = 0;
+uint32_t outdoorMeasuredAt = 0, outdoorReceivedAt = 0;
 uint32_t sensorMeasuredAt = 0, lastFrame = 0, lastDraw = 0, lastReport = 0;
 uint32_t lastWifiTry = 0, lastSocketTry = 0;
 bool wifiTried = false, socketTried = false;
@@ -74,6 +77,13 @@ void drawScreen() {
     strftime(date, sizeof(date), "%Y-%m-%d", &fields);
   }
   bool fresh = sensorReady && sensor_is_fresh(clockReady, time(nullptr), sensorMeasuredAt);
+  bool outdoorFresh = outdoorReady && millis() - outdoorReceivedAt < 180000UL &&
+      sensor_is_fresh(clockReady, time(nullptr), outdoorMeasuredAt, 3600);
+  char outdoorTemp[32] = "--.- \xB0" "C", outdoorRh[32] = "--.- %";
+  if (outdoorFresh) {
+    snprintf(outdoorTemp, sizeof(outdoorTemp), "%.1f \xB0" "C", outdoorTemperature);
+    snprintf(outdoorRh, sizeof(outdoorRh), "%.1f %%", outdoorHumidity);
+  }
   if (fresh) {
     snprintf(temp, sizeof(temp), "%.1f \xB0" "C", temperature);
     snprintf(rh, sizeof(rh), "%.1f %%", humidity);
@@ -88,12 +98,13 @@ void drawScreen() {
   }
   drawText(date, 776 - (dateWidth + 1) / 2, 12, labelFont, 0x9096A0);
   drawText(clock, 400, 35, clockFont, 0xF5F7FA);
-  drawText("FILAMENT BOX", 400, 195, labelFont, 0x00FF80);
-  drawText("TEMPERATURE", 210, 263, labelFont, 0x9096A0);
-  drawText("HUMIDITY", 590, 263, labelFont, 0x9096A0);
-  drawText(temp, 210, 300, valueFont, 0xF5F7FA);
-  drawText(rh, 590, 300, valueFont, 0xF5F7FA);
-  drawText(!socket.connected() ? "Connecting..." : !fresh ? "Waiting for fresh sensor data" : "Live", 400, 432, statusFont, 0x9096A0);
+  drawText("OUTDOOR", 210, 185, labelFont, 0x00FF80);
+  drawText("FILAMENT", 590, 185, labelFont, 0x00FF80);
+  drawText(outdoorTemp, 210, 228, valueFont, 0xF5F7FA);
+  drawText(temp, 590, 228, valueFont, 0xF5F7FA);
+  drawText(outdoorRh, 210, 330, valueFont, 0xF5F7FA);
+  drawText(rh, 590, 330, valueFont, 0xF5F7FA);
+  drawText(!socket.connected() ? "Connecting..." : !(fresh && outdoorFresh) ? "Waiting for fresh sensor data" : "Live", 400, 440, statusFont, 0x9096A0);
   display.endDraw();
 }
 
@@ -140,12 +151,20 @@ void receiveFrame() {
       offsetMinutes = offset;
       clockReady = true;
     }
-  } else if (strcmp(cmd, "SYSMON_TEMP") == 0 && data["t"].is<float>() && data["h"].is<float>()) {
+  } else if (strcmp(cmd, "OUTDOOR_TEMP") == 0 && data["available"].is<bool>() && !data["available"].as<bool>()) {
+    outdoorReady = false;
+  } else if ((strcmp(cmd, "SYSMON_TEMP") == 0 || strcmp(cmd, "OUTDOOR_TEMP") == 0) &&
+             data["t"].is<float>() && data["h"].is<float>()) {
     float t = data["t"], h = data["h"];
     if (isfinite(t) && isfinite(h) && h >= 0 && h <= 100) {
-      temperature = t; humidity = h;
-      sensorMeasuredAt = data["measured_at"].is<unsigned long>() ? data["measured_at"].as<unsigned long>() : 0;
-      sensorReady = true;
+      unsigned long measured = data["measured_at"].is<unsigned long>() ? data["measured_at"].as<unsigned long>() : 0;
+      if (strcmp(cmd, "OUTDOOR_TEMP") == 0) {
+        outdoorTemperature = t; outdoorHumidity = h;
+        outdoorMeasuredAt = measured; outdoorReceivedAt = millis(); outdoorReady = true;
+      } else {
+        temperature = t; humidity = h;
+        sensorMeasuredAt = measured; sensorReady = true;
+      }
     }
   }
 }
@@ -183,6 +202,8 @@ void loop() {
     lastReport = now;
     char line[180];
     snprintf(line, sizeof(line), "FILAMENT: uptime=%lu wifi=%d ws=%d clock=%d t=%.1f h=%.1f measured_at=%lu\n", (unsigned long)now, WiFi.status(), socket.connected(), clockReady, temperature, humidity, (unsigned long)sensorMeasuredAt);
+    logLine(line);
+    snprintf(line, sizeof(line), "OUTDOOR: ready=%d t=%.1f h=%.1f measured_at=%lu\n", outdoorReady, outdoorTemperature, outdoorHumidity, (unsigned long)outdoorMeasuredAt);
     logLine(line);
   }
   delay(5);

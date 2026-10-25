@@ -52,3 +52,24 @@ def test_unknown_clock_missing_age_and_future_measurements_are_not_live(freshnes
         (True, 1792731600, 0),
         (True, 1792731600, 1792731601),
     ]) == [0, 0, 0]
+
+
+def test_outdoor_report_age_has_an_independent_battery_sensor_limit(tmp_path):
+    binary = tmp_path / "outdoor-freshness"
+    subprocess.run([
+        "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-x", "c++", "-",
+        "-I", str(ROOT / "firmware/giga-filament"), "-o", str(binary),
+    ], input='''#include "sensor_freshness.h"
+#include <cassert>
+int main() {
+  const uint64_t report = 1792897019;
+  assert(sensor_is_fresh(true, report + 3599, report, 3600));
+  assert(!sensor_is_fresh(true, report + 3600, report, 3600));
+  assert(!sensor_is_fresh(true, report + 300, report));
+  assert(sensor_is_fresh(true, report + 300, report, 3600));
+  assert(!sensor_is_fresh(false, report, report, 3600));
+  assert(!sensor_is_fresh(true, report, report + 1, 3600));
+  assert(!sensor_is_fresh(true, report, 0, 3600));
+}
+''', text=True, check=True)
+    subprocess.run([binary], check=True)

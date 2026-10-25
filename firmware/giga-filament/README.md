@@ -2,16 +2,23 @@
 
 This standalone sketch runs on the primary Arduino GIGA R1 with its 800×480
 Display Shield. It shows Pacific local time as `HH:MM:SS`, the local date in
-the upper-right corner as `YYYY-MM-DD`, and filament-box temperature in °C
-and relative humidity. Labels and values use antialiased Lato glyphs.
+the upper-right corner as `YYYY-MM-DD`, and two sensor columns. OUTDOOR is on
+the left, FILAMENT on the right, with matching green headings. Each column stacks
+temperature in °C above relative humidity. Labels and values use the existing
+antialiased Lato glyphs and keep the open black background.
 
 The sketch connects to the existing transport adapter as `primary` at
-`/ws/panels/primary`. It accepts `TIME` and `SYSMON_TEMP` messages and ignores
+`/ws/panels/primary`. It accepts `TIME`, `SYSMON_TEMP`, and `OUTDOOR_TEMP` messages and ignores
 the other panel commands. The server supplies the Pacific UTC offset.
 `SYSMON_TEMP.measured_at` carries the source measurement's Unix timestamp.
 Sensor values become placeholders once that measurement is five minutes old,
 even if reconnects replay it. A synchronized clock and a valid source timestamp
 are required to mark a reading live; missing or future timestamps show placeholders.
+Outdoor has independent readings and report timestamps. Its source report must
+be less than an hour old, and a delivery must have arrived within three minutes.
+An explicit `OUTDOOR_TEMP` with `available: false` blanks only that column.
+The [eWeLink collector guide](../../services/ewelink-callback/README.md) explains
+the one-minute delivery interval and the battery sensor's source-age policy.
 Deploy the transport adapter change before flashing this firmware. Older full-panel
 firmware ignores the additional timestamp field.
 Wi-Fi and WebSocket connections retry automatically, including after a failed
