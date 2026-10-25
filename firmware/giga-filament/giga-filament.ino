@@ -200,10 +200,10 @@ void loop() {
   if (now - lastDraw >= 1000UL) { lastDraw = now; drawScreen(); }
   if (now - lastReport >= 5000UL) {
     lastReport = now;
-    char line[180];
-    snprintf(line, sizeof(line), "FILAMENT: uptime=%lu wifi=%d ws=%d clock=%d t=%.1f h=%.1f measured_at=%lu\n", (unsigned long)now, WiFi.status(), socket.connected(), clockReady, temperature, humidity, (unsigned long)sensorMeasuredAt);
-    logLine(line);
-    snprintf(line, sizeof(line), "OUTDOOR: ready=%d t=%.1f h=%.1f measured_at=%lu\n", outdoorReady, outdoorTemperature, outdoorHumidity, (unsigned long)outdoorMeasuredAt);
+    // Keep one report within a USB packet; back-to-back nonblocking writes can
+    // drop the second line and hide one source from diagnostics.
+    char line[64];
+    snprintf(line, sizeof(line), "F:%.1f/%.1f O:%.1f/%.1f ready=%d/%d\n", temperature, humidity, outdoorTemperature, outdoorHumidity, sensorReady, outdoorReady);
     logLine(line);
   }
   delay(5);
