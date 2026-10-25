@@ -112,7 +112,8 @@ def publish(transport, payload):
 def write_status(value):
     path = oauth.STATE_DIR / "outdoor-status.json"
     temporary = Path(str(path) + ".tmp")
-    temporary.write_text(json.dumps(value) + "\n")
+    with os.fdopen(os.open(temporary, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600), "w") as stream:
+        stream.write(json.dumps(value) + "\n")
     temporary.replace(path)
 
 
@@ -139,4 +140,5 @@ def run():
 
 
 if __name__ == "__main__":
+    os.umask(0o077)
     run()

@@ -1,6 +1,7 @@
 """Check sensor identity, source age, read-only requests, and token persistence."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 from unittest.mock import MagicMock
@@ -100,7 +101,11 @@ def test_outdoor_delivery_uses_independent_command_and_source_time(monkeypatch):
 
 
 def test_private_status_receipt_has_no_credentials(account):
-    collector.write_status({"ok": True, **collector.frame(device(), NOW)})
+    previous = os.umask(0o022)
+    try:
+        collector.write_status({"ok": True, **collector.frame(device(), NOW)})
+    finally:
+        os.umask(previous)
     path = oauth.STATE_DIR / "outdoor-status.json"
     assert path.stat().st_mode & 0o077 == 0
     assert "Token" not in path.read_text()

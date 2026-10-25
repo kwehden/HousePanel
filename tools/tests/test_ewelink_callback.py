@@ -1,7 +1,10 @@
 """Exercise the actual OAuth callback HTTP surface and one-use token exchange."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import threading
 import time
 from unittest.mock import MagicMock
@@ -132,3 +135,28 @@ def test_head_probe_cannot_consume_authorization(app, server, monkeypatch):
     with urlopen(Request(server + "/ewelink/callback?code=x&state=y&region=us", method="HEAD")) as response:
         assert response.status == 200
     complete.assert_not_called()
+
+
+def test_import_preserves_umask_and_shared_build_directory_permissions(tmp_path):
+    subprocess.run([sys.executable, "-c", '''
+import importlib.util, os, pathlib, sys
+os.umask(0o022)
+spec = importlib.util.spec_from_file_location("callback", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert os.umask(0o022) == 0o022, "Callback import changed the host process umask"
+build = pathlib.Path(sys.argv[2]) / "build"
+build.mkdir()
+assert build.stat().st_mode & 0o777 == 0o755
+''', str(ROOT / "services/ewelink-callback/main.py"), str(tmp_path)], check=True)
+
+
+def test_database_permissions_do_not_depend_on_process_umask(app):
+    previous = os.umask(0o022)
+    try:
+        with app.database():
+            pass
+        assert app.STATE_DIR.stat().st_mode & 0o777 == 0o700
+        assert (app.STATE_DIR / "oauth.sqlite").stat().st_mode & 0o777 == 0o600
+    finally:
+        os.umask(previous)

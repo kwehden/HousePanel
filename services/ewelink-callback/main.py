@@ -22,7 +22,6 @@ STATE_DIR = Path(os.getenv("STATE_DIR", "/data"))
 CREDENTIALS_FILE = Path(os.getenv("CREDENTIALS_FILE", "/credentials/credentials.json"))
 API_HOSTS = {region: f"https://{region}-apia.coolkit.cc" for region in ("us", "eu", "as")}
 API_HOSTS["cn"] = "https://cn-apia.coolkit.cn"
-os.umask(0o077)
 
 
 def credentials() -> dict[str, str] | None:
@@ -37,8 +36,12 @@ def credentials() -> dict[str, str] | None:
 
 @contextmanager
 def database():
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(STATE_DIR / "oauth.sqlite", timeout=5)
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = STATE_DIR / "oauth.sqlite"
+    # Keep credentials private even when used as a library by an operator tool.
+    os.close(os.open(path, os.O_CREAT | os.O_RDWR, 0o600))
+    path.chmod(0o600)
+    db = sqlite3.connect(path, timeout=5)
     db.execute("CREATE TABLE IF NOT EXISTS pending (state_hash TEXT PRIMARY KEY, expires REAL)")
     db.execute("CREATE TABLE IF NOT EXISTS account (id INTEGER PRIMARY KEY CHECK(id=1), region TEXT, tokens TEXT)")
     db.commit()
@@ -168,6 +171,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    os.umask(0o077)
     if sys.argv[1:] == ["authorize"]:
         try:
             print(authorization_url())
