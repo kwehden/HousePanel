@@ -12,7 +12,7 @@ DEST = ROOT / "firmware/giga-filament"
 FONTS = Path("/usr/share/fonts/truetype/lato")
 SPECS = [
     ("clockFont", "Lato-Light.ttf", 104, "0123456789:-"),
-    ("valueFont", "Lato-Regular.ttf", 72, "0123456789.- C%°"),
+    ("valueFont", "Lato-Regular.ttf", 72, "0123456789.- CF%°"),
     ("labelFont", "Lato-Regular.ttf", 24, "FILAMENT BOX TEMPERATURE HUMIDITY 0123456789-"),
     ("statusFont", "Lato-Regular.ttf", 22, "Connecting...Waiting for fresh sensor dataLive"),
 ]

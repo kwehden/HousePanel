@@ -1,6 +1,7 @@
 // Primary-only minimal display. Build with private secrets.h in a staging directory.
 #include <ArduinoGraphics.h>
 #include <Arduino_H7_Video.h>
+#include <Arduino_GigaDisplayTouch.h>
 #include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -13,8 +14,13 @@
 #include "ota_update.h"
 #include "smooth_font.h"
 #include "sensor_freshness.h"
+#include "temperature_units.h"
 
 Arduino_H7_Video display(800, 480, GigaDisplayShield);
+Arduino_GigaDisplayTouch touch;
+TemperatureUnits units;
+bool touchReady = false, portraitTouch = false;
+uint32_t lastTouchPoll = 0;
 WiFiClient network;
 WebSocketClient socket(network, TRANSPORT_ADAPTER_HOST, TRANSPORT_ADAPTER_WS_PORT);
 bool clockReady = false, sensorReady = false;
@@ -69,6 +75,7 @@ void drawText(const char* text, int center, int y, const SmoothFont& font, uint3
 void drawScreen() {
   char clock[16] = "--:--:--", temp[32] = "--.- \xB0" "C", rh[32] = "--.- %";
   char date[16] = "---- -- --";
+  snprintf(temp, sizeof(temp), "--.- \xB0%c", units.symbol());
   if (clockReady) {
     time_t local = time(nullptr) + offsetMinutes * 60;
     struct tm fields;
@@ -80,12 +87,13 @@ void drawScreen() {
   bool outdoorFresh = outdoorReady && millis() - outdoorReceivedAt < 180000UL &&
       sensor_is_fresh(clockReady, time(nullptr), outdoorMeasuredAt, 3600);
   char outdoorTemp[32] = "--.- \xB0" "C", outdoorRh[32] = "--.- %";
+  snprintf(outdoorTemp, sizeof(outdoorTemp), "--.- \xB0%c", units.symbol());
   if (outdoorFresh) {
-    snprintf(outdoorTemp, sizeof(outdoorTemp), "%.1f \xB0" "C", outdoorTemperature);
+    snprintf(outdoorTemp, sizeof(outdoorTemp), "%.1f \xB0%c", units.value(outdoorTemperature), units.symbol());
     snprintf(outdoorRh, sizeof(outdoorRh), "%.1f %%", outdoorHumidity);
   }
   if (fresh) {
-    snprintf(temp, sizeof(temp), "%.1f \xB0" "C", temperature);
+    snprintf(temp, sizeof(temp), "%.1f \xB0%c", units.value(temperature), units.symbol());
     snprintf(rh, sizeof(rh), "%.1f %%", humidity);
   }
   display.beginDraw();
@@ -106,6 +114,40 @@ void drawScreen() {
   drawText(rh, 590, 330, valueFont, 0xF5F7FA);
   drawText(!socket.connected() ? "Connecting..." : !(fresh && outdoorFresh) ? "Waiting for fresh sensor data" : "Live", 400, 440, statusFont, 0x9096A0);
   display.endDraw();
+}
+
+bool touchRead(uint16_t reg, uint8_t* data, uint8_t count) {
+  Wire1.beginTransmission(GT911_I2C_ADDR_BA_BB);
+  Wire1.write(reg >> 8);
+  Wire1.write(reg & 255);
+  if (Wire1.endTransmission() != 0) return false;
+  if (Wire1.requestFrom(GT911_I2C_ADDR_BA_BB, count) != count) return false;
+  for (uint8_t i = 0; i < count; ++i) data[i] = Wire1.read();
+  return true;
+}
+
+void pollTouch() {
+  uint32_t now = millis();
+  if (!touchReady || now - lastTouchPoll < 20) return;
+  lastTouchPoll = now;
+  uint8_t status;
+  // getTouchPoints() returns zero for both "no new report" and release. Read
+  // the ready flag first so a stationary finger cannot toggle repeatedly.
+  if (!touchRead(0x814E, &status, 1) || !(status & 0x80)) return;
+  if ((status & 0x0F) > 5) return;
+  GDTpoint_t points[5]; // The library can write all five contacts.
+  uint8_t contacts = touch.getTouchPoints(points);
+  if (contacts != (status & 0x0F)) return;
+  int x = -1, y = -1;
+  if (contacts) touch_landscape(points[0].x, points[0].y, portraitTouch, x, y);
+  bool newContact = contacts && !units.pressed;
+  bool changed = units.report(contacts != 0, x, y);
+  if (newContact) {
+    char line[64];
+    snprintf(line, sizeof(line), "TOUCH raw=%u,%u xy=%d,%d unit=%c\n", points[0].x, points[0].y, x, y, units.symbol());
+    logLine(line);
+  }
+  if (changed) { lastDraw = now; drawScreen(); }
 }
 
 void connectSocket() {
@@ -172,6 +214,14 @@ void receiveFrame() {
 void setup() {
   Serial.begin(115200);
   if (display.begin() != 0) { while (true) delay(1000); }
+  touchReady = touch.begin();
+  uint8_t dimensions[4];
+  if (touchReady && touchRead(0x8048, dimensions, 4)) {
+    uint16_t width = dimensions[0] | (uint16_t(dimensions[1]) << 8);
+    uint16_t height = dimensions[2] | (uint16_t(dimensions[3]) << 8);
+    portraitTouch = width == 480 && height == 800;
+    touchReady = portraitTouch || (width == 800 && height == 480);
+  } else touchReady = false;
   WiFi.setHostname("housepanel");
   drawScreen();
   ota_init();
@@ -180,6 +230,7 @@ void setup() {
 
 void loop() {
   ota_loop();
+  pollTouch();
   uint32_t now = millis();
   if (WiFi.status() != WL_CONNECTED) {
     if (!wifiTried || now - lastWifiTry >= 15000UL) {
@@ -203,7 +254,7 @@ void loop() {
     // Keep one report within a USB packet; back-to-back nonblocking writes can
     // drop the second line and hide one source from diagnostics.
     char line[64];
-    snprintf(line, sizeof(line), "F:%.1f/%.1f O:%.1f/%.1f ready=%d/%d\n", temperature, humidity, outdoorTemperature, outdoorHumidity, sensorReady, outdoorReady);
+    snprintf(line, sizeof(line), "F:%.1f/%.1f O:%.1f/%.1f ready=%d/%d u=%c t=%d\n", temperature, humidity, outdoorTemperature, outdoorHumidity, sensorReady, outdoorReady, units.symbol(), touchReady);
     logLine(line);
   }
   delay(5);
