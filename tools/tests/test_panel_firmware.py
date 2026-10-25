@@ -14,6 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 import panel_firmware as ota
+from firmware_sources import OTA_SOURCES
 
 KEY = bytes(range(1, 33))
 CHALLENGE = bytes(range(32)).hex()
@@ -192,8 +193,13 @@ def test_bootstrap_refuses_other_hardware_and_uses_exact_verified_binary(tmp_pat
 
 
 @pytest.mark.parametrize("lost_final_ack", [False, True])
-def test_host_upload_requires_authenticated_new_boot_and_revision(tmp_path, protocol, monkeypatch, lost_final_ack):
+@pytest.mark.parametrize("interface", ["legacy", "full", "simplified"])
+def test_host_upload_requires_authenticated_new_boot_and_revision(tmp_path, protocol, monkeypatch, lost_final_ack, interface):
     path = manifest(tmp_path)
+    if interface != "legacy":
+        data = json.loads(path.read_text())
+        data["interface"] = interface
+        path.write_text(json.dumps(data))
     listener = socket.socket()
     listener.settimeout(5)
     listener.bind(("127.0.0.1", 0))
@@ -204,10 +210,13 @@ def test_host_upload_requires_authenticated_new_boot_and_revision(tmp_path, prot
     def signed_status(connection, stream, boot, revision):
         request = stream.read(40)
         assert request[:8] == b"HPOTA1S\n"
-        body = json.dumps({"protocol": 1, "panel_id": "primary", "hostname": "housepanel",
+        value = {"protocol": 1, "panel_id": "primary", "hostname": "housepanel",
                            "identity": ota.identity("primary").decode(), "boot_id": boot * 32,
                            "ready": True, "revision": revision, "challenge": CHALLENGE,
-                           "request_nonce": request[8:].hex()}, separators=(",", ":")).encode() + b"\n"
+                           "request_nonce": request[8:].hex()}
+        if interface != "legacy":
+            value["interface"] = interface
+        body = json.dumps(value, separators=(",", ":")).encode() + b"\n"
         tag = hmac.digest(ota.auth_key(KEY), body, "sha256").hex().encode()
         connection.sendall(body + tag + b"\n")
 
@@ -241,7 +250,29 @@ def test_host_upload_requires_authenticated_new_boot_and_revision(tmp_path, prot
     assert not worker.is_alive() and not errors
 
 
-def test_private_builder_uses_only_committed_source_and_keeps_keys_out_of_argv(tmp_path, monkeypatch):
+@pytest.mark.parametrize("built,running", [("full", "simplified"), ("simplified", "full"), ("simplified", None)])
+def test_interface_mismatch_is_rejected_before_sending_image(tmp_path, monkeypatch, built, running):
+    path = manifest(tmp_path)
+    data = json.loads(path.read_text())
+    data["interface"] = built
+    path.write_text(json.dumps(data))
+    before = {"panel_id": "primary", "hostname": "housepanel", "identity": ota.identity("primary").decode()}
+    if running is not None:
+        before["interface"] = running
+    monkeypatch.setattr(ota, "status", lambda *args, **kwargs: before)
+    monkeypatch.setattr(ota.socket, "create_connection", lambda *args, **kwargs: pytest.fail("must not send image"))
+    with pytest.raises(ValueError, match="interface mismatch"):
+        ota.upload("unused", "primary", path, KEY)
+
+
+def test_simplified_build_cannot_target_secondary(tmp_path, monkeypatch):
+    monkeypatch.setattr(ota.subprocess, "check_output", lambda *args, **kwargs: pytest.fail("must not build"))
+    with pytest.raises(ValueError, match="only on primary"):
+        ota.build("panel-2", "a" * 40, tmp_path / "unused", tmp_path / "out", interface="simplified")
+
+
+@pytest.mark.parametrize("interface", ["full", "simplified"])
+def test_private_builder_uses_only_committed_source_and_keeps_keys_out_of_argv(tmp_path, monkeypatch, interface):
     import io
     import tarfile
     root = tmp_path / "repo"
@@ -253,45 +284,61 @@ def test_private_builder_uses_only_committed_source_and_keeps_keys_out_of_argv(t
     key_path.chmod(0o600)
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode="w") as bundle:
-        info = tarfile.TarInfo("firmware/housepanel-giga/housepanel-giga.ino")
-        info.size = len(b"COMMITTED SOURCE")
-        bundle.addfile(info, io.BytesIO(b"COMMITTED SOURCE"))
+        paths = ["firmware/housepanel-giga/housepanel-giga.ino"]
+        if interface == "simplified":
+            paths.append("firmware/giga-filament/giga-filament.ino")
+            paths.extend("firmware/housepanel-giga/" + name for name in OTA_SOURCES)
+        for path in paths:
+            info = tarfile.TarInfo(path)
+            info.size = len(b"COMMITTED SOURCE")
+            bundle.addfile(info, io.BytesIO(b"COMMITTED SOURCE"))
 
     def output(command, **kwargs):
         assert kwargs["cwd"] == root
-        return "a" * 40 if command[1] == "rev-parse" else archive.getvalue()
+        if command[1] == "rev-parse":
+            return "a" * 40
+        assert ("firmware/giga-filament" in command) == (interface == "simplified")
+        return archive.getvalue()
 
     def compile_firmware(command, *, check):
         assert check and command[:2] == ["arduino-cli", "compile"]
         copied = Path(command[-1])
-        assert (copied / "housepanel-giga.ino").read_text() == "COMMITTED SOURCE"
+        name = "giga-filament" if interface == "simplified" else "housepanel-giga"
+        assert (copied / f"{name}.ino").read_text() == "COMMITTED SOURCE"
+        if interface == "simplified":
+            for source in OTA_SOURCES:
+                assert (copied / source).read_text() == "COMMITTED SOURCE"
+            assert not any("LV_CONF_PATH" in arg for arg in command)
         assert (copied / "secrets.h").read_text() == "PRIVATE WIFI"
         assert KEY.hex() in (copied / "ota_secrets.h").read_text()
         assert not any(KEY.hex() in argument or "PRIVATE WIFI" in argument for argument in command)
         directory = Path(command[command.index("--output-dir") + 1])
-        (directory / "housepanel-giga.ino.bin").write_bytes(IMAGE)
+        (directory / f"{name}.ino.bin").write_bytes(IMAGE)
 
     monkeypatch.setattr(ota, "ROOT", root)
     monkeypatch.setattr(ota.subprocess, "check_output", output)
     monkeypatch.setattr(ota.subprocess, "run", compile_firmware)
     directory = tmp_path / "release"
-    result = ota.build("primary", "a" * 40, key_path, directory)
+    result = ota.build("primary", "a" * 40, key_path, directory, interface=interface)
     assert json.loads(result.read_text())["sha256"] == hashlib.sha256(IMAGE).hexdigest()
+    assert json.loads(result.read_text())["interface"] == interface
     assert directory.stat().st_mode & 0o077 == 0
     assert not (sketch / "ota_secrets.h").exists()
     with pytest.raises(ValueError, match="already exists"):
         ota.build("primary", "a" * 40, key_path, directory)
 
 
-@pytest.fixture(scope="module", params=ota.PANELS)
+@pytest.fixture(scope="module", params=[("primary", "full"), ("panel-2", "full"), ("primary", "simplified")])
 def runtime(tmp_path_factory, request):
     directory = tmp_path_factory.mktemp("ota-runtime")
     sketch = directory / "sketch"
     sketch.mkdir()
     import shutil
+    panel, interface = request.param
     firmware = ROOT / "firmware/housepanel-giga"
-    for name in ("ota_update.cpp", "ota_update.h", "ota_protocol.cpp", "ota_protocol.h", "config.h"):
-        shutil.copyfile(firmware / name, sketch / name)
+    ota.stage_ota(ROOT, sketch)
+    config = ROOT / "firmware/giga-filament/config.h" if interface == "simplified" else firmware / "config.h"
+    shutil.copyfile(config, sketch / "config.h")
     shutil.copyfile(firmware / "secrets.h.example", sketch / "secrets.h")
     (sketch / "ota_secrets.h").write_text(f'#define HOUSEPANEL_OTA_KEY_HEX "{KEY.hex()}"\n')
     fixtures = ROOT / "tools/tests/firmware"
@@ -304,7 +351,6 @@ def runtime(tmp_path_factory, request):
         path.parent.mkdir(exist_ok=True)
         path.write_text('#include "ota_crypto.h"\n')
     binary = directory / "runtime"
-    panel = request.param
     subprocess.run([
         "g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-deprecated-declarations",
         "-fsanitize=undefined", "-fno-sanitize-recover=all", "-I", str(directory), "-I", str(fixtures),
@@ -313,13 +359,13 @@ def runtime(tmp_path_factory, request):
         str(sketch / "ota_protocol.cpp"), "-Wl,--wrap=fopen", "-Wl,--wrap=remove", "-Wl,--wrap=rename",
         "-lcrypto", "-o", str(binary),
     ], check=True)
-    return binary, panel
+    return binary, panel, interface
 
 
 @pytest.mark.parametrize("mode", ["ok", "bad_auth", "expired", "timeout", "disconnect", "wifi_loss", "arm_failure", "bad_body", "status_soak",
                                  "status_partial", "accepted_partial", "final_partial"])
 def test_actual_firmware_socket_staging_and_bootloader_boundary(runtime, tmp_path, mode):
-    runtime, panel = runtime
+    runtime, panel, interface = runtime
     # Runtime fixture emits 16 boot bytes first, then this per-request nonce.
     challenge = bytes(range(16, 48)).hex()
     image = IMAGE.replace(ota.identity("primary"), ota.identity(panel))
@@ -336,6 +382,7 @@ def test_actual_firmware_socket_staging_and_bootloader_boundary(runtime, tmp_pat
     status = json.loads(body)
     ota.verify_identity(status, panel)
     assert status["challenge"] == challenge and status["ready"] is True
+    assert status["interface"] == interface
     if mode == "ok" or mode.endswith("_partial"):
         assert (tmp_path / "UPDATE.BIN").read_bytes() == image
 
@@ -343,7 +390,7 @@ def test_actual_firmware_socket_staging_and_bootloader_boundary(runtime, tmp_pat
 @pytest.mark.parametrize("phase", ["status", "accepted", "final"])
 @pytest.mark.parametrize("failure", ["stall", "zero", "error", "cut"])
 def test_reply_send_failure_never_arms_bootloader_or_leaks_socket(runtime, tmp_path, phase, failure):
-    runtime, panel = runtime
+    runtime, panel, _ = runtime
     image = IMAGE.replace(ota.identity("primary"), ota.identity(panel))
     header, wire = ota.envelope(panel, bytes(range(16, 48)).hex(), image, KEY)
     payload = tmp_path / "envelope"
@@ -353,5 +400,5 @@ def test_reply_send_failure_never_arms_bootloader_or_leaks_socket(runtime, tmp_p
 
 @pytest.mark.parametrize("mode", ["init_layout", "init_bootloader", "init_storage", "init_entropy"])
 def test_hardware_precondition_failure_disables_updates_without_retry_loop(runtime, tmp_path, mode):
-    runtime, _ = runtime
+    runtime, _, _ = runtime
     subprocess.run([runtime, tmp_path / "unused", tmp_path, mode], check=True)

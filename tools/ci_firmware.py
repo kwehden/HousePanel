@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from firmware_sources import stage_ota
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,7 +27,8 @@ def main():
 
         simplified = root / "giga-filament"
         shutil.copytree(ROOT / "firmware/giga-filament", simplified,
-                        ignore=shutil.ignore_patterns("secrets.h"))
+                        ignore=shutil.ignore_patterns("secrets.h", "ota_secrets.h"))
+        stage_ota(ROOT, simplified)
         shutil.copyfile(simplified / "secrets.h.example", simplified / "secrets.h")
         subprocess.run([
             "arduino-cli", "compile", "--fqbn", "arduino:mbed_giga:giga",

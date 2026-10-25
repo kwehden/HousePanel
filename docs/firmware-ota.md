@@ -1,5 +1,12 @@
 # GIGA Firmware Updates
 
+The simplified primary interface also uses this receiver. Build it explicitly
+with `tools/panel_firmware.py build --panel primary --interface simplified`.
+The default `full` build remains unchanged for existing callers. Both the build
+manifest and authenticated status identify the interface; routine uploads refuse
+to switch interfaces. See the [simplified primary guide](../firmware/giga-filament/README.md)
+for its one-time USB installation and subsequent Wi-Fi update commands.
+
 Firmware 0.5.3 adds an authenticated, encrypted LAN updater for `primary`
 (`housepanel`) and `panel-2` (`housepanel-2`). Routine firmware updates use Wi-Fi.
 The current 0.5.1/0.5.2 sketches have no firmware receiver, so each board needs a

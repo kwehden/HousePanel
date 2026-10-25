@@ -20,6 +20,9 @@
 #ifndef HOUSEPANEL_FIRMWARE_REVISION
 #define HOUSEPANEL_FIRMWARE_REVISION "development"
 #endif
+#ifndef HOUSEPANEL_INTERFACE
+#define HOUSEPANEL_INTERFACE "full"
+#endif
 
 namespace {
 // Mount once per boot. The upstream begin() owns lifetime allocations, so never
@@ -137,10 +140,10 @@ void status() {
     to_hex(header + 8, 32, request_nonce);
     snprintf(response, sizeof(response),
              "{\"protocol\":1,\"panel_id\":\"%s\",\"hostname\":\"%s\",\"firmware\":\"%s\","
-             "\"revision\":\"%s\",\"identity\":\"%s\",\"boot_id\":\"%s\",\"ready\":%s,"
+             "\"revision\":\"%s\",\"interface\":\"%s\",\"identity\":\"%s\",\"boot_id\":\"%s\",\"ready\":%s,"
              "\"reason\":\"%s\",\"challenge\":\"%s\",\"request_nonce\":\"%s\"}\n",
              HOUSEPANEL_PANEL_ID, HOUSEPANEL_HOSTNAME, FIRMWARE_VERSION,
-             HOUSEPANEL_FIRMWARE_REVISION, identity, boot_id, nonce_valid ? "true" : "false", reason, nonce_hex, request_nonce);
+             HOUSEPANEL_FIRMWARE_REVISION, HOUSEPANEL_INTERFACE, identity, boot_id, nonce_valid ? "true" : "false", reason, nonce_hex, request_nonce);
     uint8_t tag[32];
     char tag_hex[66];
     if (receiver.sign(reinterpret_cast<const uint8_t*>(response), strlen(response), tag)) {

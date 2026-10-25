@@ -18,10 +18,12 @@ Wi-Fi and WebSocket connections retry automatically, including after a failed
 handshake. USB diagnostics use nonblocking writes; direct power works without
 a serial reader.
 
-The secondary continues to use `firmware/housepanel-giga`. This sketch does
-not implement the full panel's touch interface, weather, calendar, OTA receiver,
-memory telemetry, or watchdog. Flash it over USB. The original primary crash
-cause remains unresolved; this is the smaller interface accepted on hardware.
+The secondary continues to use `firmware/housepanel-giga`. The simplified sketch
+uses the same authenticated, encrypted OTA receiver as the full interface. The
+build tools stage that receiver's canonical sources alongside this sketch;
+there is no independent copy to maintain. The touch interface, weather, calendar,
+memory telemetry, and watchdog remain outside this interface. The original
+primary crash cause remains unresolved.
 
 ## Build
 
@@ -30,30 +32,67 @@ Install Arduino CLI and the pinned dependencies:
 ```sh
 arduino-cli core update-index
 arduino-cli core install arduino:mbed_giga@4.5.0
-arduino-cli lib install 'ArduinoGraphics@1.1.5' 'ArduinoHttpClient@0.6.1' 'ArduinoJson@7.4.3'
-cp firmware/giga-filament/secrets.h.example firmware/giga-filament/secrets.h
+arduino-cli lib install 'ArduinoGraphics@1.1.5' 'ArduinoHttpClient@0.6.1' \
+  'ArduinoJson@7.4.3' 'Arduino_Portenta_OTA@1.2.1'
+cp firmware/housepanel-giga/secrets.h.example firmware/housepanel-giga/secrets.h
 ```
 
-Fill in the ignored `secrets.h` with Wi-Fi credentials and the adapter address.
-Then compile:
+Fill in the ignored `firmware/housepanel-giga/secrets.h` with Wi-Fi credentials
+and the adapter address. The private build tool uses this existing credential
+location for both interfaces. Reuse the primary's existing private OTA key at
+`.secrets/panels/primary.key`; do not generate another key if it already exists.
+For a new installation only, create one with `tools/panel_firmware.py keygen`.
+
+Build an exact committed revision with the existing Python environment containing
+`cryptography`. Use the reviewed commit's full SHA in place of `REVIEWED_SHA`:
 
 ```sh
-arduino-cli compile --fqbn arduino:mbed_giga:giga \
-  --build-path "$PWD/build/giga-filament-release" firmware/giga-filament
+python tools/panel_firmware.py build --panel primary --interface simplified \
+  --revision REVIEWED_SHA --key-file .secrets/panels/primary.key \
+  --output build/primary-simplified-REVIEWED_SHA
 ```
 
-Identify the primary by USB serial `004A002A3533510139363331` in
-`arduino-cli board list --format json` before uploading. Select its reported
-serial port or DFU address:
+Use this tool rather than compiling the sketch directly: it stages the shared
+OTA sources and embeds the revision, identity, and private key. Firmware images
+contain Wi-Fi credentials; keep the output and key local. The manifest records
+the `simplified` interface. Routine OTA uploads reject interface changes and key
+changes before sending the image.
+
+## One-time USB installation
+
+The previous simplified firmware has no OTA listener. Install the first
+OTA-enabled build over USB, identifying the primary by serial
+`004A002A3533510139363331`:
 
 ```sh
-arduino-cli upload --fqbn arduino:mbed_giga:giga --port PRIMARY_PORT \
-  --input-dir build/giga-filament-release
+python tools/panel_firmware.py bootstrap --panel primary \
+  --serial 004A002A3533510139363331 \
+  --manifest build/primary-simplified-REVIEWED_SHA/manifest.json
 ```
 
-CI builds this sketch with dummy credentials as well as both full-panel identities.
-CI does not flash a board. Existing OTA build tooling still targets the full-panel
-sketch.
+This preserves the bootloader and QSPI contents. The receiver requires an
+OTA-capable bootloader and the documented QSPI partition layout; it disables
+updates if those checks fail. It never formats storage automatically.
+
+## Updates over Wi-Fi
+
+Use the primary's current IP or hostname in place of `PRIMARY_HOST`:
+
+```sh
+python tools/panel_firmware.py status --panel primary --host PRIMARY_HOST \
+  --key-file .secrets/panels/primary.key
+python tools/panel_firmware.py upload --panel primary --host PRIMARY_HOST \
+  --key-file .secrets/panels/primary.key \
+  --manifest build/primary-simplified-REVIEWED_SHA/manifest.json
+```
+
+Status must be authenticated and report `interface: simplified`, `ready: true`,
+and the expected revision. After an upload, the tool requires a new authenticated
+boot ID and the target revision before reporting success. USB is not required
+for subsequent updates. See [the OTA protocol and recovery guide](../../docs/firmware-ota.md).
+
+CI stages the same OTA sources and builds this sketch with dummy credentials
+alongside both full-panel identities. It does not flash hardware or use real keys.
 
 ## Fonts
 

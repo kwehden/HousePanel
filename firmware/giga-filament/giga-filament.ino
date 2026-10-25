@@ -9,7 +9,8 @@
 #include <math.h>
 #include <new>
 #include <time.h>
-#include "secrets.h"
+#include "config.h"
+#include "ota_update.h"
 #include "smooth_font.h"
 #include "sensor_freshness.h"
 
@@ -105,7 +106,7 @@ void connectSocket() {
     socket.stop();
     return;
   }
-  const char hello[] = "{\"cmd\":\"HELLO\",\"panel_id\":\"primary\",\"hostname\":\"housepanel\",\"firmware_version\":\"filament-0.1\"}";
+  const char hello[] = "{\"cmd\":\"HELLO\",\"panel_id\":\"primary\",\"hostname\":\"housepanel\",\"firmware_version\":\"" FIRMWARE_VERSION "\"}";
   if (socket.beginMessage(TYPE_TEXT) != 0 || socket.write((const uint8_t*)hello, sizeof(hello)-1) != sizeof(hello)-1 || socket.endMessage() != 0) {
     socket.stop();
     return;
@@ -154,10 +155,12 @@ void setup() {
   if (display.begin() != 0) { while (true) delay(1000); }
   WiFi.setHostname("housepanel");
   drawScreen();
+  ota_init();
   logLine("FILAMENT: boot\n");
 }
 
 void loop() {
+  ota_loop();
   uint32_t now = millis();
   if (WiFi.status() != WL_CONNECTED) {
     if (!wifiTried || now - lastWifiTry >= 15000UL) {
