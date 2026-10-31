@@ -81,7 +81,7 @@ spec:
               containerPort: 8765
           env:
             - name: BIND_HOST
-              value: "192.168.1.186"
+              value: "192.168.1.101"
             - name: REDIRECT_URL
               value: http://standpunkt:8765/ewelink/callback
           securityContext:

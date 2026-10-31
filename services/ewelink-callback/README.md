@@ -2,9 +2,9 @@
 
 The registered callback is `http://standpunkt:8765/ewelink/callback`.
 `k8s/ewelink-callback.yaml` deploys one pod on standpunkt in the `housepanel`
-namespace. It uses the host network to bind only `192.168.1.186:8765`, the
+namespace. It uses the host network to bind only `192.168.1.101:8765`, the
 10G interface, since that port is outside the cluster's NodePort range.
-Internal DNS for `standpunkt` must resolve to `192.168.1.186`. The receiver
+Internal DNS for `standpunkt` must resolve to `192.168.1.101`. The receiver
 does not listen on the other LAN interface. A ClusterIP Service also exposes
 the receiver inside the cluster.
 
